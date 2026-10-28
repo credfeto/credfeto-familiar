@@ -1,0 +1,9 @@
+<Project>
+    <!-- Ensure that SolutionDir is defined, as some build environments (e.g. dotnet watch) do not set it by default -->
+    <PropertyGroup>
+        <!-- Acts as a fallback or primary source for SolutionDir -->
+        <SolutionDir Condition="'$(SolutionDir)' == ''">$(MSBuildThisFileDirectory)</SolutionDir>
+    </PropertyGroup>
+
+    <Import Project="$(SolutionDir)Packaging.props" Condition="Exists('$(SolutionDir)Packaging.props')" />
+</Project>

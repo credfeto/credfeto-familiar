@@ -1,0 +1,40 @@
+--- # Delete a remote branch
+# Maintain in repo: funfair-server-template
+name: "Delete Branch"
+description: "Deletes a remote branch"
+
+inputs:
+  github-token:
+    description: "GitHub token with contents write permission"
+    required: true
+  branch:
+    description: "Name of the branch to delete"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: "Delete Branch"
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      with:
+        github-token: "${{inputs.github-token}}"
+        script: |
+          const branch = process.env.BRANCH;
+          try {
+            await github.rest.git.deleteRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `heads/${branch}`,
+            });
+          } catch (err) {
+            if (err.status !== 422) {
+              throw err;
+            }
+
+            core.warning(`Branch ${branch} already deleted - skipping`);
+            return;
+          }
+
+          core.info(`Deleted branch: ${branch}`);
+      env:
+        BRANCH: "${{inputs.branch}}"

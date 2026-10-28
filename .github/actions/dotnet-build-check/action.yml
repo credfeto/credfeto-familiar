@@ -1,0 +1,44 @@
+--- # Dotnet Build Check
+# Maintain in repo: funfair-server-template
+name: "Dotnet Build Check"
+description: "Dotnet Build Check"
+inputs:
+  # GENERAL
+  pre-release-build:
+    description: "Whether pre-release NuGet packages are allowed"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Install Dotnet Build Check tool"
+      uses: ./.github/actions/dotnet-tool
+      with:
+        tool-name: "FunFair.BuildCheck"
+        tool-version: "latest"
+
+    - name: "Dotnet: Find Solution"
+      id: find_solution
+      working-directory: "${{github.workspace}}/src"
+      shell: bash
+      run: |
+        echo "Looking for solution"
+        SOLUTION="$(find . -type f -iname "*.sln" | head -1)"
+        [ -z "$SOLUTION" ] && SOLUTION="$(find . -type f -iname "*.slnx" | head -1)"
+        echo "Found: $SOLUTION"
+        echo "SOLUTION=$SOLUTION" >> "$GITHUB_OUTPUT"
+
+    - name: "Dotnet: No solution found"
+      if: steps.find_solution.outputs.SOLUTION == ''
+      shell: bash
+      run: echo "::warning::No .sln or .slnx file found under src - skipping build check"
+
+    - name: "Dotnet: Run build check"
+      if: steps.find_solution.outputs.SOLUTION != ''
+      uses: ./.github/actions/dotnet-tool-run
+      with:
+        working-directory: "${{github.workspace}}/src"
+        tool-name: "buildcheck"
+        tool-arguments: >-
+          -Solution "${{steps.find_solution.outputs.SOLUTION}}" -WarningAsErrors true
+          -PreReleaseBuild ${{inputs.pre-release-build}}

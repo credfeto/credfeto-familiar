@@ -1,0 +1,43 @@
+# Git Commit Instructions
+
+[Back to Global Instructions Index](index.md)
+
+Load this file when about to commit or acting as the Committer agent. See [git.instructions.md](git.instructions.md) for the mandatory branch verification.
+
+## Commit Rules (MANDATORY)
+
+If a hook, formatter, commit message validation, linting or formatting rule, or ignore file fails a commit, stop and report the failure.
+
+- **Never create an empty commit.** Verify `git -C <dir> diff --cached --name-only` lists at least one file before running `git commit`.
+- Never amend an existing commit; always create a new one.
+  - **Exception:** for a commit that has not yet been pushed to `origin`, the commit message may be amended (e.g. to fix wording or apply [Commit Message Format](#commit-message-format)). The set of files in the commit and their content must never be changed by such an amend, only the message.
+- Commit from a working tree that holds exactly one change, per [One change at a time](task-workflow.instructions.md#one-change-at-a-time). Never split a tree holding several changes into commits by file or by hunk; hand it back to the Orchestrator instead.
+- Push to `origin` after every commit, or once after a run of consecutive commits when pushes are batched; the branch is always pushed before PR Submitter or CI Monitor runs and before the session ends.
+- **Never bypass hooks or formatters.**
+- **Never bypass commit message validation.**
+- **Never change linting or formatting rules to force a commit through.**
+- **Never modify ignore files to force a commit through.**
+
+## Unexpected Reformatting During Commit (MANDATORY)
+
+If hooks or formatters modify files **not in your intended change set**:
+
+- **P1.** Do not stage the unrequested changes.
+- **P2.** Abort the commit.
+- **P3.** Report the affected files and which hook/formatter changed them.
+- **P4.** Wait for explicit instructions.
+
+## Commit Message Format
+
+- Use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) format.
+
+### Pattern Sweep Commits
+
+A commit produced by the [Pattern Sweep](code-quality.instructions.md#pattern-sweep-mandatory) rule must, in addition to the rules above:
+
+- Follow its own fix commit immediately, before the next change is started, per [One change at a time](task-workflow.instructions.md#one-change-at-a-time); the exception is Phase A's post-convergence sweeps in the [AI Review Loop](agent-roles.instructions.md#pr-workflow-ai-review-loop), which have no fix commit of their own.
+- Use the Conventional Commits type of the fix commit it derives from (the oldest, when it derives from several; `refactor` for a Phase A sweep of `/simplify` changes), with a title that states it is a sweep, e.g. `fix: apply null-guard fix to remaining call sites`.
+- Carry a `Construct: <one line naming the construct searched for>` line; this exact prefix is what later rounds search commit bodies for.
+- Reference every fix commit SHA it derives from and, where one exists, the review comment or finding.
+- List every file touched, one line per file, each stating why that site matches the original finding.
+- A fix commit that carries sweep hunks in files it already touches carries the same `Construct:` line and per-file lines; a fix commit whose sweep found nothing carries `Construct:` and `Swept: none`.

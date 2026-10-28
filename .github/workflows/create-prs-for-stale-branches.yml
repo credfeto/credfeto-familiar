@@ -1,0 +1,272 @@
+--- # PR: find branches without open pull requests
+# Maintain in repo: funfair-server-template
+name: "PR: Find branches without PR's"
+
+on:
+  push:
+    branches:
+      - "main"
+    paths:
+      - ".github/workflows/create-prs-for-stale-branches.yml"
+      - ".github/actions/check-required-secret/**"
+      - ".github/actions/find-pull-request/**"
+      - ".github/actions/read-file/**"
+      - ".github/actions/create-pull-request/**"
+      - ".github/actions/sync-labels/**"
+      - ".github/actions/delete-branch/**"
+  schedule:
+    - cron: "0 1 * * *"
+
+concurrency:
+  group: "${{github.workflow}}-${{github.ref}}"
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+
+jobs:
+  build-matrix:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: "Initialise Workspace"
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: sudo chown -R "$USER:$USER" "$GITHUB_WORKSPACE"
+
+      - name: "Set Active Environment"
+        shell: bash
+        run: |
+          {
+            echo "ACTIVE_RUNNER_NAME=${{runner.name}}"
+            echo "ACTIVE_HOSTNAME=$HOSTNAME"
+            echo "ACTIVE_USER=$USER"
+          } >> "$GITHUB_ENV"
+
+      - name: "Info"
+        shell: bash
+        run: |
+          echo "Repo: ${{github.repository}}"
+          echo "Owner: ${{github.repository_owner}}"
+
+      - name: "Checkout Source"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          clean: true
+          fetch-depth: 0
+          ref: main
+          repository: "${{github.repository}}"
+
+      - name: "Create matrix of branches"
+        id: set-matrix
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { data: repo } = await github.rest.repos.get({ owner: context.repo.owner, repo: context.repo.repo });
+            const defaultBranch = repo.default_branch;
+
+            const [{ stdout: branchList }, { stdout: commitMsgRaw }, { stdout: lastUpdateRaw }] = await Promise.all([
+              exec.getExecOutput('git', ['branch', '--remote', '--format=%(refname:short)']),
+              exec.getExecOutput('git', ['log', '-1', '--pretty=%s', `origin/${defaultBranch}`]),
+              exec.getExecOutput('git', [
+                'for-each-ref',
+                '--format=%(refname:short) %(committerdate:unix)',
+                'refs/remotes/origin/',
+              ]),
+            ]);
+
+            const branches = branchList
+              .split('\n')
+              .map(line => line.trim().match(/^origin\/(.+)$/)?.[1])
+              .filter(branch => branch && branch !== 'HEAD' && !branch.startsWith('release/') && !branch.startsWith('hotfix/') && branch !== defaultBranch);
+            const branchSet = new Set(branches);
+
+            const commitMsg = commitMsgRaw.trim();
+
+            const lastUpdateByBranch = new Map(
+              lastUpdateRaw
+                .split('\n')
+                .map(line => line.trim().split(' '))
+                .filter(([ref]) => ref && branchSet.has(ref.slice('origin/'.length)))
+                .map(([ref, timestamp]) => [ref.slice('origin/'.length), Number(timestamp)]),
+            );
+
+            const nowSeconds = Math.floor(Date.now() / 1000);
+
+            const matrix = await Promise.all(
+              branches.map(async branch => {
+                const compareRef = `origin/${defaultBranch}...origin/${branch}`;
+                const { stdout: countsRaw } = await exec.getExecOutput('git', ['rev-list', '--left-right', '--count', compareRef]);
+                const [behind, ahead] = countsRaw.trim().split(/\s+/);
+
+                const daysSinceUpdate = Math.floor((nowSeconds - lastUpdateByBranch.get(branch)) / 86400);
+
+                return { branch, ahead, behind, dayssinceupdate: String(daysSinceUpdate) };
+              }),
+            );
+
+            core.setOutput('branches', JSON.stringify(matrix));
+            core.setOutput('haschanges', matrix.length > 0);
+            core.setOutput('defaultbranch', defaultBranch);
+            core.setOutput('commitmsg', commitMsg);
+    outputs:
+      branches: "${{steps.set-matrix.outputs.branches}}"
+      haschanges: "${{steps.set-matrix.outputs.haschanges}}"
+      defaultbranch: "${{steps.set-matrix.outputs.defaultbranch}}"
+      commitmsg: "${{steps.set-matrix.outputs.commitmsg}}"
+
+  check-branch:
+    needs: build-matrix
+    if: needs.build-matrix.outputs.haschanges == 'true'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: write
+
+    strategy:
+      matrix:
+        include: "${{fromJson(needs.build-matrix.outputs.branches)}}"
+    env:
+      BRANCH: "${{matrix.branch}}"
+      DEFAULT_BRANCH: "${{needs.build-matrix.outputs.defaultbranch}}"
+      AHEAD: "${{matrix.ahead}}"
+      BEHIND: "${{matrix.behind}}"
+      DAYS_SINCE_UPDATE: "${{matrix.dayssinceupdate}}"
+
+    steps:
+      - name: "Initialise Workspace"
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: sudo chown -R "$USER:$USER" "$GITHUB_WORKSPACE"
+
+      - name: "Set Active Environment"
+        shell: bash
+        run: |
+          {
+            echo "ACTIVE_RUNNER_NAME=${{runner.name}}"
+            echo "ACTIVE_HOSTNAME=$HOSTNAME"
+            echo "ACTIVE_USER=$USER"
+          } >> "$GITHUB_ENV"
+
+      - name: "Checkout Source"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          clean: true
+          ref: main
+          repository: "${{github.repository}}"
+
+      - name: "Check Required Secrets"
+        uses: ./.github/actions/check-required-secret
+        with:
+          secret-name: "SOURCE_PUSH_TOKEN"
+          secret-value: "${{secrets.SOURCE_PUSH_TOKEN}}"
+
+      - name: "Find Existing PR"
+        uses: ./.github/actions/find-pull-request
+        id: find-pull-request
+        with:
+          branch: "${{env.BRANCH}}"
+
+      - name: "Display Found PR"
+        shell: bash
+        run: echo "Pull Request ${{steps.find-pull-request.outputs.number}} (${{steps.find-pull-request.outputs.head-sha}})"
+
+      - name: "Check Branch Status"
+        if: steps.find-pull-request.outputs.number == ''
+        shell: bash
+        run: |
+          echo "$BRANCH is behind $DEFAULT_BRANCH by $BEHIND commit(s)"
+          echo "$BRANCH is ahead of $DEFAULT_BRANCH by $AHEAD commit(s)"
+
+      # Ahead of default branch (the default branch itself is excluded from the matrix above), and no pre-existing PR then create one.
+      - name: "Read PR Template"
+        if: |-
+          steps.find-pull-request.outputs.number == ''
+          && matrix.ahead != 0
+          && matrix.dayssinceupdate > 7
+        id: pr-template
+        uses: ./.github/actions/read-file
+        with:
+          path: ./.github/PULL_REQUEST_TEMPLATE.md
+
+      - name: "Check Required Secrets"
+        if: |-
+          steps.find-pull-request.outputs.number == ''
+          && matrix.ahead != 0
+          && matrix.dayssinceupdate > 7
+        uses: ./.github/actions/check-required-secret
+        with:
+          secret-name: "PR_CREATE_TOKEN"
+          secret-value: "${{secrets.PR_CREATE_TOKEN}}"
+
+      - name: "Create PR"
+        if: |-
+          steps.find-pull-request.outputs.number == ''
+          && matrix.ahead != 0
+          && matrix.dayssinceupdate > 7
+        id: open-pr
+        uses: ./.github/actions/create-pull-request
+        with:
+          github-token: "${{secrets.PR_CREATE_TOKEN}}"
+          source-branch: "${{matrix.branch}}"
+          destination-branch: "${{env.DEFAULT_BRANCH}}"
+          assignees: "${{github.actor}}"
+          labels: "auto-pr,stale"
+          draft: true
+          title: "${{needs.build-matrix.outputs.commitmsg}} [No commits for ${{matrix.dayssinceupdate}} days]"
+          body: "${{steps.pr-template.outputs.content}}"
+
+      - name: "New PR Details"
+        if: |-
+          steps.find-pull-request.outputs.number == ''
+          && matrix.ahead != 0
+          && matrix.dayssinceupdate > 7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_URL: "${{steps.open-pr.outputs.pr-url}}"
+          PR_NUMBER: "${{steps.open-pr.outputs.pr-number}}"
+          HAS_CHANGED_FILES: "${{steps.open-pr.outputs.has-changed-files}}"
+        with:
+          script: |
+            core.info(`URL: ${process.env.PR_URL}`);
+            core.info(`PR: ${process.env.PR_NUMBER}`);
+            core.info(`CF: ${process.env.HAS_CHANGED_FILES}`);
+
+      - name: "Update PR Labels"
+        if: steps.open-pr.outputs.pr-number != ''
+        uses: ./.github/actions/sync-labels
+        with:
+          github-token: "${{secrets.SOURCE_PUSH_TOKEN}}"
+          pr-number: "${{steps.open-pr.outputs.pr-number}}"
+
+      - name: "Rebase"
+        if: |-
+          steps.find-pull-request.outputs.number == ''
+          && matrix.behind != 0
+          && matrix.ahead != 0
+          && matrix.dayssinceupdate > 7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            core.info('Rebase?');
+
+      - name: "Delete Branch"
+        if: |-
+          steps.find-pull-request.outputs.number == ''
+          && matrix.ahead == '0'
+          && matrix.dayssinceupdate > 60
+        uses: ./.github/actions/delete-branch
+        with:
+          github-token: "${{secrets.SOURCE_PUSH_TOKEN}}"
+          branch: "${{matrix.branch}}"
+
+      - name: "Statistics"
+        if: steps.find-pull-request.outputs.number == ''
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            core.info(`Ahead: ${process.env.AHEAD}`);
+            core.info(`Behind: ${process.env.BEHIND}`);
+            core.info(`Last Commit: ${process.env.DAYS_SINCE_UPDATE} days ago`);

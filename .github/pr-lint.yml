@@ -1,0 +1,6 @@
+--- # PR lint configuration
+projects: ['FF']
+check_title: true
+check_branch: false
+check_commits: false
+ignore_case: true

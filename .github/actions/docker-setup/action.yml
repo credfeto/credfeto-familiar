@@ -1,0 +1,59 @@
+--- # Setup Docker
+# Maintain in repo: funfair-server-template
+name: "Setup Docker"
+description: "Setup docker"
+inputs:
+  aws-access-key-id:
+    description: "AWS Access key"
+    required: true
+  aws-secret-access-key:
+    description: "AWS Secret key"
+    required: true
+  aws-region:
+    description: "AWS region"
+    required: true
+  docker-container-registry:
+    description: "AWS Elastic Container Registry"
+    required: true
+  docker-username:
+    description: "Docker username"
+    required: true
+  docker-access-token:
+    description: "Docker access token"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Set up Docker Buildx"
+      uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+    - name: "Configure AWS Credentials"
+      if: inputs.aws-access-key-id != ''
+      uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+      with:
+        aws-access-key-id: "${{inputs.aws-access-key-id}}"
+        aws-secret-access-key: "${{inputs.aws-secret-access-key}}"
+        aws-region: "${{inputs.aws-region}}"
+
+    - name: "Docker: Login to Docker Hub"
+      if: inputs.docker-access-token != ''
+      uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+      with:
+        username: "${{inputs.docker-username}}"
+        password: "${{inputs.docker-access-token}}"
+        ecr: false
+
+    - name: "Docker: Login to AWS ECR"
+      if: inputs.aws-access-key-id != ''
+      uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+      with:
+        registry: "${{inputs.docker-container-registry}}"
+        ecr: true
+
+    - name: "Docker: Login to GitHub Container Registry"
+      uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+      with:
+        registry: ghcr.io
+        username: "${{github.actor}}"
+        password: "${{github.token}}"

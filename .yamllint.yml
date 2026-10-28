@@ -1,0 +1,17 @@
+---
+# Maintain in repo: funfair-server-template
+extends: default
+rules:
+  comments:
+    min-spaces-from-content: 1
+  comments-indentation: false
+  document-start:
+    present: true
+    level: error
+  indentation:
+    spaces: 2
+    indent-sequences: true
+  line-length:
+    max: 160
+  truthy:
+    allowed-values: ["true", "false", "on"]

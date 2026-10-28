@@ -1,0 +1,95 @@
+--- # Publishes a Dotnet app to an executable
+# Maintain in repo: funfair-server-template
+name: "Publishes a Dotnet app to an executable"
+description: "Publishes a Dotnet app to an executable"
+inputs:
+  # General
+  production-build:
+    description: "Whether to build a production build"
+    required: true
+
+  build-version:
+    description: "Build version"
+    required: true
+
+  release-notes:
+    description: "Release notes"
+    required: false
+
+  platform:
+    description: "Platform to build"
+    required: true
+
+  project-to-publish:
+    description: "Package (root) to deploy"
+    required: false
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Dotnet: Check Variables"
+      shell: bash
+      run: |
+        echo "Platform: $PLATFORM"
+        if [ -z "$PLATFORM" ]; then
+          echo "Missing Platform";
+          exit 1
+        fi
+      env:
+        PLATFORM: "${{inputs.platform}}"
+
+    # PublishTrimmed and PublishAot are controlled per-project in .csproj files so each project can opt in independently.
+    ## Notes: NETSDK1094  can't use --no-restore
+    - name: "Dotnet: Publish"
+      working-directory: "${{github.workspace}}/src/${{inputs.project-to-publish}}"
+      shell: bash
+      run: |
+        dotnet publish \
+                  --warnaserror  \
+                  --configuration:Release \
+                  "-r:${{inputs.platform}}" \
+                  --self-contained \
+                  --ignore-failed-sources \
+                  -nodeReuse:False \
+                  "-p:Deterministic=True" \
+                  "-p:DisableSwagger=${{env.RELEASE}}" \
+                  "-p:FFPublishing=True" \
+                  "-p:IncludeNativeLibrariesForSelfExtract=True" \
+                  "-p:IsProduction=${{inputs.production-build}}" \
+                  "-p:NoWarn=NETSDK1179" \
+                  "-p:Optimize=true" \
+                  "-p:PublishReadyToRun=false" \
+                  "-p:PublishReadyToRunShowWarnings=True" \
+                  "-p:PublishSingleFile=true" \
+                  "-p:SolutionDir=..\\" \
+                  "-p:SuppressNETCoreSdkPreviewMessage=true" \
+                  "-p:TreatWarningsAsErrors=True" \
+                  "-p:Version=${{inputs.build-version}}" \
+                  "-p:ContinuousIntegrationBuild=true" \
+                  --output "${{github.workspace}}/server-dist/${{inputs.platform}}"
+      env:
+        ReleaseNotes: "${{inputs.release-notes}}"
+
+    - name: "Report publish output size"
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      env:
+        OUTPUT_DIR: "${{github.workspace}}/server-dist/${{inputs.platform}}"
+        PLATFORM: "${{inputs.platform}}"
+      with:
+        script: |
+          const { execSync } = require('child_process');
+          const outputDir = process.env.OUTPUT_DIR;
+          const platform = process.env.PLATFORM;
+          let sizes = '';
+          try {
+            sizes = execSync(`du -sh "${outputDir}"/*`, { encoding: 'utf8', shell: true }).trim();
+          } catch {
+            // no output files found
+          }
+          if (sizes) {
+            const message = `Published output sizes for ${platform}:\n${sizes}`;
+            core.info(`\u001b[36m${message}\u001b[0m`);
+            core.notice(message, { title: `Publish output size: ${platform}` });
+          } else {
+            core.info(`No output files found for ${platform}`);
+          }

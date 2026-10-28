@@ -1,0 +1,130 @@
+--- # Deploy: Cloudformation deployment workflow
+# Maintain in repo: funfair-server-template
+name: "!!Deploy: Using Cloudformation"
+on:
+  workflow_dispatch:
+    # note MAX inputs = 10
+    inputs:
+      CLOUD_FORMATION_STACK:
+        description: "1. The Cloud Formation stack to deploy as"
+        required: true
+      CLOUD_FORMATION_TEMPLATE_FILE:
+        description: "2. The Cloud Formation file to deploy"
+        required: true
+      DOCKER_APP_OWNER:
+        description: "3. docker app owner"
+        required: true
+      DOCKER_APP_NAME:
+        description: "4. docker app name"
+        required: true
+      API_HOST:
+        description: "5. Api Host"
+        required: false
+      API_PREFIX:
+        description: "6. API Prefix"
+        required: false
+      AWS_LOAD_BALANCER_HOSTNAME:
+        description: "7. AWS Load Balancer match hostname"
+        required: false
+      AWS_LOAD_BALANCER_PRIORITY:
+        description: "8. AWS Load Balancer match priority"
+        required: true
+      DOCKER_CONTAINER_REGISTRY:
+        description: "9. AWS container registry to retrieve package from"
+        required: true
+      BUILD_VERSION:
+        description: "10. Build Version"
+        required: true
+
+# Don't cancel anything in progress
+concurrency:
+  group: "${{github.workflow}}-${{inputs.CLOUD_FORMATION_STACK}}-${{inputs.BUILD_VERSION}}"
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  security-events: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: "Initialise Workspace"
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: sudo chown -R "$USER:$USER" "$GITHUB_WORKSPACE"
+
+      - name: "Set Active Environment"
+        shell: bash
+        run: |
+          {
+            echo "ACTIVE_RUNNER_NAME=${{runner.name}}"
+            echo "ACTIVE_HOSTNAME=$HOSTNAME"
+            echo "ACTIVE_USER=$USER"
+          } >> "$GITHUB_ENV"
+
+      - name: "Checkout"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          clean: true
+          fetch-depth: 1
+
+      - name: "Log parameters"
+        uses: ./.github/actions/log-deploy-parameters
+        with:
+          cloud-formation-stack: "${{inputs.CLOUD_FORMATION_STACK}}"
+          cloud-formation-template-file: "${{inputs.CLOUD_FORMATION_TEMPLATE_FILE}}"
+          docker-app-owner: "${{inputs.DOCKER_APP_OWNER}}"
+          docker-app-name: "${{inputs.DOCKER_APP_NAME}}"
+          build-version: "${{inputs.BUILD_VERSION}}"
+          api-host: "${{inputs.API_HOST}}"
+          api-prefix: "${{inputs.API_PREFIX}}"
+          aws-load-balancer-hostname: "${{inputs.AWS_LOAD_BALANCER_HOSTNAME}}"
+          docker-container-registry: "${{inputs.DOCKER_CONTAINER_REGISTRY}}"
+          aws-load-balancer-priority: "${{inputs.AWS_LOAD_BALANCER_PRIORITY}}"
+
+      - name: "Run Cloud Formation Linter"
+        uses: ./.github/actions/cfn-lint
+        with:
+          template: "${{github.workspace}}/${{inputs.CLOUD_FORMATION_TEMPLATE_FILE}}"
+
+      - name: "Configure AWS Credentials"
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          aws-access-key-id: "${{secrets.AWS_DOCKER_CONTAINER_REGISTRY_ACCESS_KEY_ID}}"
+          aws-secret-access-key: "${{secrets.AWS_DOCKER_CONTAINER_REGISTRY_SECRET_ACCESS_KEY}}"
+          aws-region: "${{vars.AWS_REGION}}"
+
+      - name: "Cloudformation Deploy"
+        uses: ./.github/actions/cloudformation-deploy
+        with:
+          cloud-formation-stack: "${{inputs.CLOUD_FORMATION_STACK}}"
+          cloudformation-sns-arn: "${{vars.CLOUDFORMATION_SNS_ARN}}"
+          cloud-formation-template-file: "${{github.workspace}}/${{inputs.CLOUD_FORMATION_TEMPLATE_FILE}}"
+          docker-app-name: "${{inputs.DOCKER_APP_NAME}}"
+          build-version: "${{inputs.BUILD_VERSION}}"
+          api-host: "${{inputs.API_HOST}}"
+          aws-load-balancer-hostname: "${{inputs.AWS_LOAD_BALANCER_HOSTNAME}}"
+          aws-load-balancer-priority: "${{inputs.AWS_LOAD_BALANCER_PRIORITY}}"
+          docker-container-registry: "${{inputs.DOCKER_CONTAINER_REGISTRY}}"
+
+      - name: "Log Build Version"
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          APP_OWNER: "${{inputs.DOCKER_APP_OWNER}}"
+          APP_NAME: "${{inputs.DOCKER_APP_NAME}}"
+          BUILD_VERSION: "${{inputs.BUILD_VERSION}}"
+          CLOUD_FORMATION_STACK: "${{inputs.CLOUD_FORMATION_STACK}}"
+        with:
+          script: |
+            const appOwner = process.env.APP_OWNER;
+            const appName = process.env.APP_NAME;
+            const buildVersion = process.env.BUILD_VERSION;
+            const stack = process.env.CLOUD_FORMATION_STACK;
+            core.info(`Application: \u001b[38;5;6m${appOwner}\\${appName}`);
+            core.info(`Version: \u001b[38;5;6m${buildVersion}`);
+            core.info(`Stack: \u001b[38;5;6m${stack}`);
+            core.notice(`Application: ${appOwner}\\${appName}`);
+            core.notice(`Version: ${buildVersion}`);
+            core.notice(`Stack: ${stack}`);

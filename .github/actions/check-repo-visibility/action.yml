@@ -1,0 +1,61 @@
+--- # Check repository visibility, template, and fork status
+# Maintain in repo: funfair-server-template
+name: "Check Repository Visibility"
+description: "Checks whether the current repository is public, a template, and/or a fork"
+
+outputs:
+  is-public:
+    description: "Whether the repository is public ('true' or 'false')"
+    value: "${{steps.check.outputs.is-public}}"
+  is-template:
+    description: "Whether the repository is a template repository ('true' or 'false')"
+    value: "${{steps.check.outputs.is-template}}"
+  is-fork:
+    description: "Whether the repository is a fork ('true' or 'false')"
+    value: "${{steps.check.outputs.is-fork}}"
+  fork-parent:
+    description: "Full name (owner/repo) of the parent repository if this is a fork, otherwise empty"
+    value: "${{steps.check.outputs.fork-parent}}"
+  lookup-error:
+    description: "Error message if the lookup failed, otherwise empty. On failure other outputs default to the most restrictive values (false/empty)"
+    value: "${{steps.check.outputs.lookup-error}}"
+
+runs:
+  using: composite
+  steps:
+    - name: "Check Repository Visibility"
+      id: check
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      with:
+        github-token: "${{github.token}}"
+        script: |
+          let repo;
+          try {
+            ({ data: repo } = await github.rest.repos.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            }));
+          } catch (err) {
+            core.warning(`⚠️ Could not retrieve repository info - defaulting to restrictive values: ${err.message}`);
+            core.setOutput('is-public', 'false');
+            core.setOutput('is-template', 'false');
+            core.setOutput('is-fork', 'false');
+            core.setOutput('fork-parent', '');
+            core.setOutput('lookup-error', err.message);
+            return;
+          }
+
+          const isPublic = !repo.private;
+          const isTemplate = !!repo.is_template;
+          const isFork = !!repo.fork;
+          const forkParent = isFork && repo.parent ? repo.parent.full_name : '';
+
+          core.info(`Repository is ${isPublic ? 'public' : 'private'}`);
+          core.info(`Template repository: ${isTemplate ? '✅ Yes' : '❌ No'}`);
+          core.info(`Forked repository: ${isFork ? `✅ Yes (from ${forkParent})` : '❌ No'}`);
+
+          core.setOutput('is-public', isPublic ? 'true' : 'false');
+          core.setOutput('is-template', isTemplate ? 'true' : 'false');
+          core.setOutput('is-fork', isFork ? 'true' : 'false');
+          core.setOutput('fork-parent', forkParent);
+          core.setOutput('lookup-error', '');

@@ -1,0 +1,82 @@
+--- # Dependabot: approve dependency updates
+# Maintain in repo: funfair-server-template
+name: "Dependabot: Approve updates"
+on:
+  # https://securitylab.github.com/research/github-actions-preventing-pwn-requests
+  # pull_request_target is required here to grant the workflow write permissions on Dependabot PRs.
+  # NOTE: pull_request_target resolves local composite actions from the filesystem rather than git
+  # storage, and since the workspace is empty at job initialisation (before any steps run), local
+  # uses: ./.github/actions/... references will always fail - even with an actions/checkout step,
+  # because step execution happens after action path resolution. As a result, any steps in this
+  # workflow that would otherwise use local composite actions must inline their logic directly.
+  pull_request_target:
+    types:
+      - opened
+      - edited
+      - reopened
+      - synchronize
+      - ready_for_review
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+
+jobs:
+  approve-dependabot:
+    if: vars.DEPENDABOT_AUTOMERGE == 'true' && github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Check Required Secrets"
+        shell: bash
+        run: |
+          if [ -z "${{secrets.SOURCE_PUSH_TOKEN}}" ]; then
+            echo "::error::SOURCE_PUSH_TOKEN is required but not set"
+            exit 1
+          fi
+
+      - name: "Auto Merge"
+        if: startsWith(github.head_ref, 'dependabot/github_actions/') || startsWith(github.head_ref, 'dependabot/npm_and_yarn/')
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          github-token: "${{secrets.SOURCE_PUSH_TOKEN}}"
+          script: |
+            const mergeMethod = process.env.MERGE_METHOD;
+            const nodeId = context.payload.pull_request.node_id;
+            await github.graphql(`
+              mutation EnableAutoMerge($pullRequestId: ID!, $mergeMethod: PullRequestMergeMethod!) {
+                enablePullRequestAutoMerge(input: {
+                  pullRequestId: $pullRequestId,
+                  mergeMethod: $mergeMethod
+                }) {
+                  pullRequest {
+                    autoMergeRequest {
+                      mergeMethod
+                    }
+                  }
+                }
+              }
+            `, {
+              pullRequestId: nodeId,
+              mergeMethod: mergeMethod,
+            });
+            core.info(`✅ Enabled auto-merge (${mergeMethod}) on PR #${context.payload.pull_request.number}`);
+            core.notice(`Enabled auto-merge (${mergeMethod}) on PR #${context.payload.pull_request.number}`);
+        env:
+          MERGE_METHOD: "MERGE"
+
+      - name: "Approve"
+        if: startsWith(github.head_ref, 'dependabot/github_actions/') || startsWith(github.head_ref, 'dependabot/npm_and_yarn/')
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          github-token: "${{secrets.SOURCE_PUSH_TOKEN}}"
+          script: |
+            await github.rest.pulls.createReview({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              event: 'APPROVE',
+            });
+            core.info(`✅ Approved PR #${context.payload.pull_request.number}`);
+            core.notice(`Approved PR #${context.payload.pull_request.number}`);

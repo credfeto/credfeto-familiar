@@ -1,0 +1,66 @@
+--- # Cleanup on PR Close
+# Maintain in repo: funfair-server-template
+name: "PR: Closed"
+on:
+  pull_request:
+    types:
+      - closed
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup-cache:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: "Check Required Secrets"
+        shell: bash
+        run: |
+          if [ -z "${{secrets.SOURCE_PUSH_TOKEN}}" ]; then
+            echo "::error::SOURCE_PUSH_TOKEN is required but not set"
+            exit 1
+          fi
+
+      - name: "Initialise Workspace"
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: sudo chown -R "$USER:$USER" "$GITHUB_WORKSPACE"
+
+      - name: "Set Active Environment"
+        shell: bash
+        run: |
+          {
+            echo "ACTIVE_RUNNER_NAME=${{runner.name}}"
+            echo "ACTIVE_HOSTNAME=$HOSTNAME"
+            echo "ACTIVE_USER=$USER"
+          } >> "$GITHUB_ENV"
+
+      - name: "Cleanup"
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          github-token: "${{secrets.SOURCE_PUSH_TOKEN}}"
+          script: |
+            const ref = process.env.BRANCH;
+            const caches = await github.paginate(github.rest.actions.getActionsCacheList, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: ref,
+            });
+            core.info(`Found ${caches.length} cache(s) for ${ref}`);
+            core.info('Deleting caches...');
+            for (const cache of caches) {
+              core.info(`Deleting cache: ${cache.key} (id: ${cache.id})`);
+              try {
+                await github.rest.actions.deleteActionsCacheById({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  cache_id: cache.id,
+                });
+              } catch (err) {
+                core.warning(`Failed to delete cache ${cache.key}: ${err.message}`);
+              }
+            }
+            core.info('Done');
+        env:
+          BRANCH: refs/pull/${{github.event.pull_request.number}}/merge

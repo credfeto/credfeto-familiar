@@ -1,0 +1,81 @@
+--- # Check for outdated GitHub Action version pins in composite action files
+# Maintain in repo: funfair-server-template
+name: "Repo: Check composite action versions"
+on:
+  schedule:
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: "${{github.workflow}}-${{github.ref}}"
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  repo-info:
+    runs-on: ubuntu-latest
+
+    outputs:
+      is_template: "${{steps.visibility.outputs.is-template}}"
+
+    steps:
+      - name: "Initialise Workspace"
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: sudo chown -R "$USER:$USER" "$GITHUB_WORKSPACE"
+
+      - name: "Set Active Environment"
+        shell: bash
+        run: |
+          {
+          echo "ACTIVE_RUNNER_NAME=${{runner.name}}"
+          echo "ACTIVE_HOSTNAME=$HOSTNAME"
+          echo "ACTIVE_USER=$USER"
+          } >> "$GITHUB_ENV"
+
+      - name: "Checkout"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          clean: true
+          fetch-depth: 1
+
+      - name: "Check repo visibility"
+        id: visibility
+        uses: ./.github/actions/check-repo-visibility
+
+  check-composite-action-versions:
+    needs: [repo-info]
+    if: needs.repo-info.outputs.is_template == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: "Initialise Workspace"
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: sudo chown -R "$USER:$USER" "$GITHUB_WORKSPACE"
+
+      - name: "Set Active Environment"
+        shell: bash
+        run: |
+          {
+          echo "ACTIVE_RUNNER_NAME=${{runner.name}}"
+          echo "ACTIVE_HOSTNAME=$HOSTNAME"
+          echo "ACTIVE_USER=$USER"
+          } >> "$GITHUB_ENV"
+
+      - name: "Checkout"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: "Check Required Secrets"
+        uses: ./.github/actions/check-required-secret
+        with:
+          secret-name: "SOURCE_PUSH_TOKEN"
+          secret-value: "${{secrets.SOURCE_PUSH_TOKEN}}"
+
+      - name: "Check Composite Action Versions"
+        uses: ./.github/actions/check-composite-action-versions
+        with:
+          github-token: "${{secrets.SOURCE_PUSH_TOKEN}}"

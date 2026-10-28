@@ -1,0 +1,223 @@
+# Claude Code Hook Interaction Instructions
+
+[Back to Global Instructions Index](index.md)
+
+This template's development containers (and any interactive session with the hooks installed via
+`install-claude-hooks`) run a fixed set of Claude Code `PreToolUse` hooks. Most match every Bash
+tool call; a couple also match a specific non-Bash tool call (see the reference table below). This
+file covers how to interpret a hook **denial** correctly, how to
+tell one apart from a denial coming from Claude Code's separate permission system, and what a
+permission denial does and does not stop; for how to
+background and poll long-running commands once a call has actually been accepted, see
+[Background Tasks and Monitor Tool](task-workflow.instructions.md#background-tasks-and-monitor-tool-mandatory)
+and [Never Truncate Test/Commit Commands](task-workflow.instructions.md#never-truncate-testcommit-commands-mandatory).
+
+## A Denial Means the Command Never Ran (MANDATORY)
+
+A `PreToolUse` hook denial (a tool result explaining the call was blocked) means the command
+**never started**. There is nothing in flight and nothing will ever notify you about it later.
+
+- Fix the specific thing the denial names and retry **immediately, in the same turn**.
+- Never end a turn saying you are "waiting for it to finish" or "waiting for a completion
+  notification" for a denied command. This matters most acutely in a single-shot session: there
+  is no later turn for that notification to land in, so uncommitted work is silently abandoned,
+  but the same misread is just as wrong in an interactive session with turns to spare.
+
+## Read the Denial's Stated Reason Literally (MANDATORY)
+
+What "the specific thing" above means in practice:
+
+- `git commands must use "git -C <dir>" format` means add `-C <dir>` to that git invocation, not a
+  general git problem.
+- `git commit must run with run_in_background: true` means add that tool parameter, not switch to
+  a different commit approach.
+
+Fixing one hook's violation at a time and retrying can trigger a second hook's denial on the same
+call, so satisfy every applicable rule in the one call that is retried rather than discovering them
+one by one. The most common case is a command that must satisfy both a git-invocation-shape hook
+and a must-be-backgrounded hook at once: `git -C <dir> commit -m "..."` invoked with
+`run_in_background: true` set on that same tool call.
+
+Different denials on similar-looking commands usually come from **different** hooks with
+**different** fixes; do not average them into one general theory (e.g. "backgrounding is broken").
+Read the exact hook name and message each time. For example, a plain `dotnet test` without
+`run_in_background: true` is blocked by `enforce-background-for-long-running-commands`, while the same
+command with both `run_in_background: true` *and* a `timeout N` shell wrapper is blocked by
+`reject-obfuscated-commands` instead (`timeout` is categorically blocklisted, see below): a
+wrapper-command rejection, unrelated to backgrounding. These are two independent, correctly-working
+checks, not one contradiction.
+
+## A Hook Block Is Not a Puzzle to Solve (Never Work Around It) (MANDATORY)
+
+Fixing and retrying, as
+[A Denial Means the Command Never Ran](#a-denial-means-the-command-never-ran-mandatory) and the
+section above require, means retrying **the same operation** in a form the hook accepts. It never
+means finding another way to get the same effect, because a hook that can be got round no longer
+enforces anything. Decide which of two cases applies:
+
+- **The block is correct.** The command broke a rule or took a shortcut the hook exists to stop.
+  Change approach to the permitted way of doing the same thing; there is nothing to report. For
+  example:
+  - `git grep` blocked by `enforce-git-dash-c`: use the Grep tool or plain `grep` instead.
+  - `cd <dir> && git <command>` blocked: use `git -C <dir> <command>`.
+  - A file edit written through a Bash heredoc blocked by `block-no-verify` (a false positive on the
+    heredoc's text): make the edit with the Edit tool instead.
+- <a id="hook-too-strict"></a>**The hook is too strict.** The operation is legitimate, and no form
+  of it that the hook accepts exists. Do **not** get the same effect a different way. In
+  particular, never:
+  - write an inline or ad-hoc script (Python, shell or any other language) that does what the
+    blocked command would have done;
+  - use copy-and-swap tricks, such as copying files aside and swapping them back, to stand in for a
+    blocked copy, compare or restore;
+  - switch to a different command or tool with the same effect, such as `git checkout -- <path>`
+    when `git restore` is blocked;
+  - create or edit any settings, permission or hook file to make the blocked command run, including
+    `.claude/settings*.json` in any repository, anything under `~/.claude/`, and any `CLAUDE.md`, or
+    load a skill that does so;
+  - ask the calling role, the Orchestrator or the human to run the blocked command for you.
+
+  Instead, stop that operation and report the blocked command and the hook's message, both
+  verbatim, to the calling role, or to the Orchestrator if there is no calling role, so the human
+  can decide whether the hook should change. The report is passed up the chain as described in
+  [Hook Blocks in Hand-offs](agent-roles.instructions.md#hook-blocks-in-hand-offs-mandatory).
+
+In both cases, retrying the same operation in a form the hook accepts is fine: literal paths instead
+of variables, `git -C <dir>` instead of `cd && git`, `run_in_background: true` on the same call, as
+[Read the Denial's Stated Reason Literally](#read-the-denials-stated-reason-literally-mandatory)
+describes. An agent that hits a `git grep` block and stops to ask is behaving correctly; the answer
+is that the block is correct and plain `grep` is the permitted form.
+
+## A Permission Denial Is Not a Hook Denial (MANDATORY)
+
+Claude Code has a second way to refuse a command: the permission system itself, sitting above the
+hook chain. Under `permissions.defaultMode: "dontAsk"`, a command that would normally prompt for
+approval is auto-denied instead. This is not a `PreToolUse` hook running; no hook name appears
+anywhere in the message.
+
+Tell the two apart by the message shape, not by guessing at a cause:
+
+- A **hook** denial names the hook and states a reason and a fix, in the shared form every hook
+  uses: `Blocked (command did not run - fix and retry, do not wait for it): <reason>`.
+- A **permission** denial names no hook, states no rule, and gives no fix, typically just
+  `Permission to use Bash has been denied because Claude Code is running in don't ask mode.`
+  Read literally, it means that one command was refused, not Bash as a whole; see
+  [A `dontAsk` Denial Refuses One Command, Not Bash](#a-dontask-denial-refuses-one-command-not-bash-mandatory).
+
+The one thing both share: the command **never ran**. Everything in
+[A Denial Means the Command Never Ran](#a-denial-means-the-command-never-ran-mandatory) above
+applies identically to a permission denial; do not wait for it to finish.
+
+The most common cause of a permission denial is a search command that omits its mandated
+exclusions. A Bash command naming a directory (`find <dir>`, `grep -r ... <dir>`, `cd <dir> && ...`)
+is modelled as a read of everything under it. Without the exclusions required by
+[Exclude Secret-Bearing Files From Repo Searches](tool-preferences.instructions.md#exclude-secret-bearing-files-from-repo-searches-mandatory),
+it cannot be proven that a `.env`/`.database`/`.claude` path will not be read, so the call
+escalates, and under `dontAsk` an escalation comes back as a denial rather than a prompt.
+
+A `find` over a work tree containing a `.claude` directory, run without the mandated exclusions,
+is denied this way, while the same command scoped to a subtree with no secret-bearing file runs.
+
+One command can get a hook denial when run in the foreground (named hook, stated fix) and a
+permission denial when run in the background (naming neither). These are two different denial
+shapes, not one broken session. This differs from averaging two hook denials into one theory:
+one denial is a hook and the other is not.
+Identify which part of the command is being modelled as a broad read, narrow or exclude it, and
+retry, as the next section requires.
+
+### A `dontAsk` Denial Refuses One Command, Not Bash (MANDATORY)
+
+A `dontAsk` permission denial refuses only the one command it names. The message says
+"Permission to use Bash", but its scope is that single call: the command text did not match an
+allow rule, so it escalated, and under `dontAsk` the escalation came back as a denial. Bash stays
+available, and the next call is judged on its own text.
+
+Never stop the session, report that "Bash is disabled", or treat the task as blocked because of a
+permission denial. It does not meet the [Environment Health](git.instructions.md#environment-health-mandatory)
+stop bar, because nothing in the environment changed; only that command's shape was refused.
+Instead:
+
+- **P1.** Rewrite the command in its rule-compliant form and retry it at once, in the same turn.
+  Each of these shapes escalates for the same reason as a search without its exclusions: the
+  permission system cannot prove what the call will touch from its text alone.
+  - `git -C <dir> <command>`, not `cd <dir>; git <command>` or `cd <dir> && git <command>` (see
+    [Running Git Commands in a Specific Directory](git.instructions.md#running-git-commands-in-a-specific-directory)).
+  - Literal values, not `$VAR` or any other shell expansion, because an allow rule matches the
+    text as written and cannot see what a variable expands to.
+  - One simple command per call, not a `;` or `&&` chain, because every part of a chain must match
+    an allow rule on its own and one unmatched part denies the whole call; make separate tool
+    calls instead.
+  - The mandated exclusions on every search, as
+    [Exclude Secret-Bearing Files From Repo Searches](tool-preferences.instructions.md#exclude-secret-bearing-files-from-repo-searches-mandatory)
+    requires.
+- **P2.** Only if the rule-compliant form is also denied, log it as
+  [Logging an Allowlist Request](#logging-an-allowlist-request-mandatory) describes, then carry on
+  with the rest of the task.
+
+### Logging an Allowlist Request (MANDATORY)
+
+A rule-compliant command that the permission system still denies needs a new allow rule, which only
+the owner can add. Record it where the owner collects these requests, so the need is not lost when
+the session ends:
+
+- **P1.** Read the comments on credfeto/credfeto-orchestrator#1167
+  (`gh issue view 1167 --repo credfeto/credfeto-orchestrator --comments`) and check whether the
+  same command, or an allow rule that would cover it, is already listed. If it is, add nothing.
+- **P2.** Otherwise, comment on credfeto/credfeto-orchestrator#1167 with the exact denied command,
+  why the task needs it, and the repository the session is working in, building the body as
+  [Comment and Body Text](github-cli.instructions.md#comment-and-body-text-mandatory-heredoc-never-n)
+  requires.
+- **P3.** Continue with the rest of the task. The request is for the owner to act on later; it
+  does not block the current work.
+
+## Prefer the Tool's Own Backgrounding Parameter (MANDATORY)
+
+Use the tool's own `run_in_background: true` parameter, never shell-level backgrounding (`&`,
+`nohup ... &`, `disown`). Shell-level backgrounding is blocked outright by
+`enforce-background-for-long-running-commands` (see below) and produces the same
+denial-misread-as-in-flight failure described above.
+
+## Ad-Hoc Commands Never Use `xargs` or `while IFS= read` Loops (MANDATORY)
+
+Never use `xargs` or a `while IFS= read` loop in an ad-hoc Bash tool call. `reject-obfuscated-commands`
+refuses both before the command runs:
+
+- `xargs` is on `command-blocklist`, which wins over `command-allowlist`, so any command containing
+  it is rejected.
+- `IFS` is on `env-var-blocklist`, so an assignment to it is rejected, whether it is a standalone
+  statement or a per-command prefix such as `IFS= read`. Dropping the prefix does not help, because
+  `read` is not on `command-allowlist` either.
+
+Instead, write one flat command per call: name the paths directly, or pass the whole list in one
+call (for example `shellcheck a.sh b.sh`, or
+`gh issue edit <n> --repo <owner/repo> --add-label "a,b"`).
+
+Committed scripts and workflow steps do not pass through these hooks, so a fixed per-file command
+there may still use `xargs -0r`; see
+[Git File Lists](shell-scripts.instructions.md#git-file-lists).
+
+## Reference: Installed Hook Set
+
+The exact hook set installed at `$HOME/.claude/hooks` (from `install-claude-hooks`) at the time
+this file was written, in the order they run (the three `reject-obfuscated-commands` data files
+are listed directly after it rather than at their own position, since they have none):
+
+| Hook | Blocks | Why |
+| --- | --- | --- |
+| `reject-obfuscated-commands` | Any Bash command not built from plain, obviously-spelled command words (indirect execution, sub-shells, wrapper-flag smuggling) | Text/regex scanning for banned patterns is an arms race that never converges against a determined bypass attempt; this hook parses with a real shell parser and applies policy to the resulting AST instead. Reads `command-allowlist`, `command-blocklist`, and `env-var-blocklist` as its data tables. |
+| `command-allowlist` (data file, not a hook) | N/A | Known-good command names for `reject-obfuscated-commands`; a command not on this list (and not on `command-blocklist`, which wins) is rejected outright. |
+| `command-blocklist` (data file, not a hook) | N/A | Known-bad command names for `reject-obfuscated-commands` (e.g. `eval`, `source`, `bash`, and wrapper commands including `timeout` and `xargs`) that are rejected even though they are plain bare words, because each one hides or re-enters execution in a way this check cannot see through, or (for the wrapper commands) can smuggle another command past name-based checks. This is why a shell `timeout` wrapper around `dotnet test`/`dotnet build`/`git commit` is always rejected, `run_in_background: true` or not; see [Never Truncate Test/Commit Commands](task-workflow.instructions.md#never-truncate-testcommit-commands-mandatory). |
+| `env-var-blocklist` (data file, not a hook) | N/A | Environment variables (`PATH`, `IFS`, `LD_PRELOAD`, `GIT_*`, and similar) that `reject-obfuscated-commands` refuses to let a command assign, because they change how *other* commands are located, parsed, or attributed. |
+| `enforce-allowed-dirs` | `cd`/`pushd`, `git -C`, `npm --prefix`, `find` starting points, and `rm`/`mv`/`cp` operands outside a configured allowlist of directory roots, plus flags on those same commands that turn a path argument into code execution (`git --exec-path`/`--git-dir`/`--work-tree`, most `git -c` keys, `npm --script-shell`, `find -exec`/`-delete`, `rm --no-preserve-root`) | The permission-rule syntax has no typed placeholder for "a directory goes here", so a wildcarded directory position also matches any option injected there; this hook does the positional check statically instead. Configured via `allowed-dirs` (or a host-local `allowed-dirs.local` override); a directory outside every configured root blocks. |
+| `block-no-verify` | `--no-verify`/`-n` on any git command that would skip commit hooks, and the equivalent on `mcp__github__.*` tool calls | Enforces "never bypass hooks or formatters": a failing pre-commit hook must be fixed and retried, not skipped. Installed globally on `PATH` rather than shipped under `claude-hooks/`, which is why its `claude-settings.json` entries (registered for both the `Bash` matcher and the `mcp__github__.*` matcher) omit the `$HOME/.claude/hooks/` prefix every other hook uses. |
+| `enforce-git-identity` | Git subcommands that create or rewrite commits (or precede one, like `fetch`) unless git identity and GPG signing are correctly configured | Prevents an unsigned or misattributed commit from being created at all, rather than relying on review to catch it afterwards. |
+| `enforce-git-dash-c` | Any git subcommand not written as `git -C <dir> <command>` | See [Running Git Commands in a Specific Directory](git.instructions.md#running-git-commands-in-a-specific-directory). |
+| `block-git-worktree` | `git worktree add`, and the equivalent native `EnterWorktree` tool call | Worktrees split repo state across multiple linked checkouts sharing one object store; this template's tooling assumes a single checkout per repo directory, and an errant `worktree add` can leave the primary checkout bare with no work tree of its own. See [Avoid `git worktree`](git.instructions.md#avoid-git-worktree). |
+| `block-dotnet-tool-install` | `dotnet tool install` (local or global) and `dotnet new tool-manifest` | This container's .NET global tools are pinned and baked into the image at build time; installing an unpinned tool at runtime would bypass the dependency-selection review the pinned set went through. |
+| `enforce-ssh-host-and-key` | Any `ssh` call other than exactly `ssh user@host command...` with no flags, and one when no usable key is loaded in the forwarded ssh-agent | `ssh` has a blanket allow entry; the danger is in the destination, not the verb, which a permission-rule prefix pattern cannot scope. Restricts the host to a private-network suffix and requires the agent to hold a working key first, since this container never mounts raw private key files. |
+| `enforce-background-for-long-running-commands` | `git commit`, `pre-commit` (direct invocation), `pre-commit-check` (this template's wrapper around it), `dotnet build`, `dotnet test`, `npm test`, and `bun test` unless the call sets `run_in_background: true` | See [Never Truncate Test/Commit Commands](task-workflow.instructions.md#never-truncate-testcommit-commands-mandatory) for why none of these have a safe foreground timeout. |
+| `cache-gh-lookups` | Nothing; it never blocks | Rewrites a bare `gh api user --jq '.login'` call to read a cached copy instead of hitting the API every time, falling through unchanged on any parse failure. |
+
+If a command is blocked by a hook not listed here, or this table no longer matches
+`$HOME/.claude/hooks` on a given container, treat the table as stale rather than the denial as
+wrong: read the hook's own header comment (each one documents its rationale) before assuming it is
+a bug.

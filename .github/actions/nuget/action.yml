@@ -1,0 +1,93 @@
+--- # Build and deploy packages
+# Maintain in repo: funfair-server-template
+name: "Configure Nuget Feeds"
+description: "Configure Nuget Feeds"
+inputs:
+  # NUGET
+  nuget-public-restore-feed-cache:
+    description: "Local cache of public nuget feed"
+    required: false
+  nuget-public-restore-feed:
+    description: "public nuget feed"
+    required: false
+  nuget-additional-restore-feed-release-cache:
+    description: "Any additional nuget feed to download packages from"
+    required: false
+  nuget-additional-restore-feed-prerelease-cache:
+    description: "Any additional nuget feed to download packages from"
+    required: false
+  nuget-additional-restore-feed-release:
+    description: "Any additional nuget feed to download packages from"
+    required: false
+  nuget-additional-restore-feed-prerelease:
+    description: "Any additional nuget feed to download packages from"
+    required: false
+
+runs:
+  using: "composite"
+  steps:
+
+    - name: "Dotnet: Build NuGet Config"
+      shell: bash
+      env:
+        NUGET_PUBLIC_RESTORE_FEED_CACHE: "${{inputs.nuget-public-restore-feed-cache}}"
+        NUGET_PUBLIC_RESTORE_FEED: "${{inputs.nuget-public-restore-feed}}"
+        NUGET_ADDITIONAL_RESTORE_FEED_RELEASE_CACHE: "${{inputs.nuget-additional-restore-feed-release-cache}}"
+        NUGET_ADDITIONAL_RESTORE_FEED_RELEASE: "${{inputs.nuget-additional-restore-feed-release}}"
+        NUGET_ADDITIONAL_RESTORE_FEED_PRERELEASE_CACHE: "${{inputs.nuget-additional-restore-feed-prerelease-cache}}"
+        NUGET_ADDITIONAL_RESTORE_FEED_PRERELEASE: "${{inputs.nuget-additional-restore-feed-prerelease}}"
+      run: |
+        # Conf settings
+        NUGET_CONF_DIR="$HOME/.nuget/NuGet"
+        NUGET_CONF_FILE="$HOME/.nuget/NuGet/NuGet.Config"
+
+        [ -d "$NUGET_CONF_DIR" ] || mkdir -p "$NUGET_CONF_DIR"
+        echo "NuGet.Config: $NUGET_CONF_FILE"
+
+        NAMES=()
+        URLS=()
+
+        add_nuget_feed() {
+          local cache_value="$1" feed_value="$2" feed_label="$3"
+          if [ -n "$cache_value" ]; then
+            echo "Adding Cached ${feed_label} feed"
+            NAMES+=("Cache: ${feed_label}")
+            URLS+=("$cache_value")
+          elif [ -n "$feed_value" ]; then
+            echo "Adding ${feed_label} feed"
+            NAMES+=("$feed_label")
+            URLS+=("$feed_value")
+          else
+            echo "No ${feed_label} feed"
+          fi
+        }
+
+        add_nuget_feed "$NUGET_PUBLIC_RESTORE_FEED_CACHE" "$NUGET_PUBLIC_RESTORE_FEED" "nuget.org"
+        add_nuget_feed "$NUGET_ADDITIONAL_RESTORE_FEED_RELEASE_CACHE" "$NUGET_ADDITIONAL_RESTORE_FEED_RELEASE" "Additional: Release"
+        add_nuget_feed "$NUGET_ADDITIONAL_RESTORE_FEED_PRERELEASE_CACHE" "$NUGET_ADDITIONAL_RESTORE_FEED_PRERELEASE" "Additional: Pre-Release"
+
+        {
+          echo "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+          echo "<configuration>"
+          echo "  <packageSources>"
+          echo "    <clear />"
+          for index in ${!NAMES[@]}; do
+            NAME=${NAMES[$index]}
+            URL=${URLS[$index]}
+            echo "    <add key=\"$NAME\" value=\"$URL\" protocolVersion=\"3\" />"
+          done
+          echo "  </packageSources>"
+          echo "</configuration>"
+        } > "$NUGET_CONF_FILE"
+
+        cat "$NUGET_CONF_FILE"
+
+    - name: "Dotnet: Show sources (After)"
+      shell: bash
+      run: |
+        echo "List current nuget feeds (after)"
+        dotnet nuget list source
+
+    - name: "Dotnet: Clear nuget cache"
+      shell: bash
+      run: dotnet nuget locals all --clear

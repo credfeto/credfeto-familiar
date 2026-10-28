@@ -1,0 +1,6 @@
+--- # Hadolint Dockerfile linter configuration
+# Maintain in repo: funfair-server-template
+ignored:
+  - DL3008
+  - DL3009
+  - DL3018

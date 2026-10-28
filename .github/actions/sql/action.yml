@@ -1,0 +1,35 @@
+--- # Build SQL
+# Maintain in repo: funfair-server-template
+name: "Build SQL"
+description: "Builds SQL Package"
+inputs:
+  db-folder:
+    description: "Folder where SQL Files live"
+    required: true
+
+  # GITHUB
+  github-token:
+    description: "Github Token"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: "SQL: Install TSQLLint"
+      uses: ./.github/actions/dotnet-tool
+      with:
+        tool-name: "TSQLLint"
+        tool-version: "latest"
+
+    - name: "SQL: Lint SQL Files (TSQLLint)"
+      uses: ./.github/actions/dotnet-tool-run
+      with:
+        tool-name: "tsqllint"
+        tool-arguments: "${{inputs.db-folder}}"
+        working-directory: "${{github.workspace}}"
+
+    - name: "SQL: Lint SQL Files (SQLFluff)"
+      uses: ./.github/actions/super-linter
+      with:
+        mode: "sql"
+        github-token: "${{inputs.github-token}}"

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<Project>
+    <!-- Hide any test results -->
+    <ItemGroup>
+        <None Remove="TestResults/**/*" />
+        <None Remove="coverage.settings.xml" />
+    </ItemGroup>
+
+    <!-- if building in github reference the github actions test logger -->
+    <ItemGroup Condition="$(GITHUB_REF) != ''">
+        <PackageReference Include="GitHubActionsTestLogger" Version="*" />
+    </ItemGroup>
+
+    <!-- Enable Code Coverage for unit tests -->
+    <ItemGroup>
+        <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" Version="*" />
+    </ItemGroup>
+
+    <!-- Generate a settings file that restricts coverage to the sister assembly, passed via coverage-settings flag -->
+    <PropertyGroup>
+        <_CoverageSisterAssembly>$(MSBuildProjectName.Replace('.Tests', ''))</_CoverageSisterAssembly>
+        <_CoverageSettingsFile>$(MSBuildProjectDirectory)/coverage.settings.xml</_CoverageSettingsFile>
+        <TestingPlatformCommandLineArguments>$(TestingPlatformCommandLineArguments) --coverage-settings "$(_CoverageSettingsFile)"</TestingPlatformCommandLineArguments>
+    </PropertyGroup>
+
+    <Target Name="GenerateCoverageSettings" BeforeTargets="Build">
+        <ItemGroup>
+            <!-- %3F = ?, %2A = *, %5C = \ : percent-encode special chars so MSBuild does not expand globs or normalise backslashes to / on Linux -->
+            <_CoverageSettingsLines Include="&lt;Configuration&gt;" />
+            <_CoverageSettingsLines Include="  &lt;CodeCoverage&gt;" />
+            <_CoverageSettingsLines Include="    &lt;ModulePaths&gt;" />
+            <_CoverageSettingsLines Include="      &lt;Include&gt;" />
+            <_CoverageSettingsLines Include="        &lt;ModulePath&gt;.%2A$(_CoverageSisterAssembly).dll&lt;/ModulePath&gt;" />
+            <_CoverageSettingsLines Include="      &lt;/Include&gt;" />
+            <_CoverageSettingsLines Include="    &lt;/ModulePaths&gt;" />
+            <_CoverageSettingsLines Include="    &lt;Attributes&gt;" />
+            <_CoverageSettingsLines Include="      &lt;Exclude&gt;" />
+            <_CoverageSettingsLines Include="        &lt;Attribute&gt;^System%5C.CodeDom%5C.Compiler%5C.GeneratedCodeAttribute$&lt;/Attribute&gt;" />
+            <_CoverageSettingsLines Include="      &lt;/Exclude&gt;" />
+            <_CoverageSettingsLines Include="    &lt;/Attributes&gt;" />
+            <!-- ZLinq.DropInGenerator drops in generated LINQ extensions without a [GeneratedCodeAttribute], so it can't be caught by the Attributes exclusion above; match its generated-file path instead. Roslyn writes generated sources under generated/<GeneratorAssembly>/<GeneratorType>/<HintName>, and both the assembly and type name are the fixed literal "ZLinq.DropInGenerator" regardless of which project consumes it, even though the hint name itself is project-dependent. -->
+            <_CoverageSettingsLines Include="    &lt;Sources&gt;" />
+            <_CoverageSettingsLines Include="      &lt;Exclude&gt;" />
+            <_CoverageSettingsLines Include="        &lt;Source&gt;.%2AZLinq%5C.DropInGenerator.%2A&lt;/Source&gt;" />
+            <_CoverageSettingsLines Include="      &lt;/Exclude&gt;" />
+            <_CoverageSettingsLines Include="    &lt;/Sources&gt;" />
+            <_CoverageSettingsLines Include="  &lt;/CodeCoverage&gt;" />
+            <_CoverageSettingsLines Include="&lt;/Configuration&gt;" />
+        </ItemGroup>
+        <WriteLinesToFile
+            File="$(_CoverageSettingsFile)"
+            Lines="@(_CoverageSettingsLines)"
+            Overwrite="true" />
+    </Target>
+
+</Project>

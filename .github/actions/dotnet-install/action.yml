@@ -1,0 +1,374 @@
+--- # Install dotnet, configure nuget feeds and create tool manifest
+# Maintain in repo: funfair-server-template
+name: "Install dotnet"
+description: "Install dotnet, configure nuget feeds and create tool manifest"
+inputs:
+  github-token:
+    description: "Github Token"
+    required: true
+
+  # DOTNET
+  dotnet-sdk-channels:
+    description: "Newline-separated list of dotnet SDK channels to install (e.g. \"9\" and \"10\"), in addition to any version pinned by src/global.json"
+    required: false
+    default: '10'
+
+  # NUGET
+  nuget-public-restore-feed-cache:
+    description: "Local cache of public nuget feed"
+    required: false
+  nuget-public-restore-feed:
+    description: "Public nuget feed"
+    required: false
+  nuget-additional-restore-feed-release-cache:
+    description: "Cache of any additional nuget feed to download packages from"
+    required: false
+  nuget-additional-restore-feed-prerelease-cache:
+    description: "Cache of any additional nuget feed to download packages from"
+    required: false
+  nuget-additional-restore-feed-release:
+    description: "Any additional nuget feed to download packages from"
+    required: false
+  nuget-additional-restore-feed-prerelease:
+    description: "Any additional nuget feed to download packages from"
+    required: false
+
+runs:
+  using: "composite"
+  steps:
+
+    - name: "Resolve dotnet SDK versions"
+      id: resolve_dotnet_sdk_versions
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      env:
+        DOTNET_SDK_CHANNELS: "${{inputs.dotnet-sdk-channels}}"
+      with:
+        script: |
+          const { existsSync, readFileSync } = require('fs');
+          const path = require('path');
+
+          const globalJsonPath = path.join(process.env.GITHUB_WORKSPACE, 'src', 'global.json');
+          let globalVersion = null;
+          let globalChannel = null;
+          if (existsSync(globalJsonPath)) {
+            const globalJson = JSON.parse(readFileSync(globalJsonPath, 'utf8'));
+            if (!globalJson.sdk || !globalJson.sdk.version) {
+              core.setFailed('❌ src/global.json exists but has no sdk.version field');
+              return;
+            }
+            globalVersion = globalJson.sdk.version;
+            const [major, minor] = globalVersion.split('.');
+            globalChannel = `${major}.${minor}`;
+            core.info(`✅ src/global.json pins SDK ${globalVersion} (channel ${globalChannel})`);
+          } else {
+            core.warning('⚠️ src/global.json not found - no pinned SDK version');
+          }
+
+          const requestedChannels = process.env.DOTNET_SDK_CHANNELS
+            .split('\n')
+            .map(channel => channel.trim())
+            .filter(Boolean);
+
+          const channelMatches = (channelVersion, requested) =>
+            requested.includes('.') ? channelVersion === requested : channelVersion.split('.')[0] === requested;
+
+          const resolved = new Set();
+          if (globalVersion) {
+            resolved.add(globalVersion);
+          }
+
+          const releasesIndexUrl = 'https://dotnetcli.blob.core.windows.net/dotnet/release-metadata/releases-index.json';
+          const unresolvedChannels = [];
+          for (const requested of requestedChannels) {
+            if (globalChannel && channelMatches(globalChannel, requested)) {
+              core.info(`ℹ️ Channel ${requested} already covered by global.json (${globalVersion})`);
+            } else {
+              unresolvedChannels.push(requested);
+            }
+          }
+
+          if (unresolvedChannels.length > 0) {
+            let index = null;
+            for (let attempt = 1; attempt <= 5 && index === null; attempt++) {
+              try {
+                const response = await fetch(releasesIndexUrl, { signal: AbortSignal.timeout(120000) });
+                if (response.ok) {
+                  index = await response.json();
+                } else {
+                  core.warning(`⚠️ releases-index.json attempt ${attempt} returned ${response.status}`);
+                }
+              } catch (error) {
+                core.warning(`⚠️ releases-index.json attempt ${attempt} failed: ${error.message}`);
+              }
+              if (index === null && attempt < 5) {
+                await new Promise(resolve => setTimeout(resolve, attempt * 5000));
+              }
+            }
+            if (index === null) {
+              core.setFailed('❌ Failed to fetch releases-index.json after 5 attempts');
+              return;
+            }
+
+            for (const requested of unresolvedChannels) {
+              const match = index['releases-index'].find(entry => channelMatches(entry['channel-version'], requested));
+              if (!match) {
+                core.setFailed(`❌ No release channel found matching '${requested}'`);
+                return;
+              }
+              core.info(`✅ Channel ${requested} resolved to latest SDK ${match['latest-sdk']}`);
+              resolved.add(match['latest-sdk']);
+            }
+          }
+
+          if (resolved.size === 0) {
+            core.setFailed('❌ No dotnet SDK versions resolved - check src/global.json and dotnet-sdk-channels input');
+            return;
+          }
+
+          const versions = [...resolved].sort();
+          core.setOutput('sdk-versions', versions.join('\n'));
+          core.setOutput('sdk-versions-key', versions.join('-'));
+          core.notice(`Dotnet SDK versions to install: ${versions.join(', ')}`);
+
+    - name: "Set dotnet environment"
+      shell: bash
+      run: |
+        DOTNET_DIR="${{github.workspace}}/.dotnet/${{steps.resolve_dotnet_sdk_versions.outputs.sdk-versions-key}}"
+        NUGET_PKGS="${{github.workspace}}/.nuget/packages"
+        {
+          echo "DOTNET_ROOT=$DOTNET_DIR"
+          echo "DOTNET_INSTALL_DIR=$DOTNET_DIR"
+          echo "NUGET_PACKAGES=$NUGET_PKGS"
+          echo "DOTNET_MULTILEVEL_LOOKUP=false"
+          echo "DOTNET_NOLOGO=true"
+          echo "DOTNET_PRINT_TELEMETRY_MESSAGE=false"
+          echo "DOTNET_JitCollect64BitCounts=1"
+          echo "DOTNET_ReadyToRun=0"
+          echo "DOTNET_TC_QuickJitForLoops=1"
+          echo "DOTNET_TC_CallCountingDelayMs=0"
+          echo "DOTNET_TieredPGO=1"
+          echo "MSBUILDTERMINALLOGGER=auto"
+        } >> "$GITHUB_ENV"
+        echo "$DOTNET_DIR" >> "$GITHUB_PATH"
+
+    # Workaround for https://github.com/dotnet/sdk/issues/11432
+    - name: "Reset users dotnet state"
+      shell: bash
+      working-directory: "${{ github.workspace }}"
+      run: |
+        [ -d "$HOME/.dotnet" ] && rm -fr "$HOME/.dotnet"
+        mkdir "$HOME/.dotnet"
+
+    # Workaround for https://github.com/dotnet/sdk/issues/11432
+    - name: "Re-map users nuget package feed to temp folder"
+      shell: bash
+      working-directory: "${{ github.workspace }}"
+      run: |
+        echo "Ensure ~/.nuget folder exists"
+        [ -d "$HOME/.nuget" ] || mkdir -p "$HOME/.nuget"
+        echo "Ensure NUGET_PACKAGES folder exists at ${{env.NUGET_PACKAGES}}"
+        [ -d "${{env.NUGET_PACKAGES}}" ] || mkdir -p "${{env.NUGET_PACKAGES}}"
+        echo "Ensure ~/.nuget/packages doesn't exist"
+        rm -fr "$HOME/.nuget/packages"
+        echo "Link ~/.nuget/packages to ${{env.NUGET_PACKAGES}}"
+        ln -sf "${{env.NUGET_PACKAGES}}" "$HOME/.nuget/packages"
+        echo "Check ~/.nuget/packages"
+        ls -la "$HOME/.nuget/packages"
+
+    - name: "Check for existing dotnet install"
+      id: check_dotnet_install
+      shell: bash
+      working-directory: "${{ github.workspace }}"
+      run: |
+        INSTALL_NEEDED="false"
+        DOTNET_BIN="${{env.DOTNET_ROOT}}/dotnet"
+        if [ ! -x "$DOTNET_BIN" ]; then
+          INSTALL_NEEDED="true"
+        else
+          INSTALLED_SDKS="$("$DOTNET_BIN" --list-sdks 2>/dev/null | awk '{print $1}')" || INSTALLED_SDKS=""
+          while IFS= read -r VERSION; do
+            [ -z "$VERSION" ] && continue
+            if ! grep -qxF "$VERSION" <<< "$INSTALLED_SDKS"; then
+              INSTALL_NEEDED="true"
+            fi
+          done <<< "${{steps.resolve_dotnet_sdk_versions.outputs.sdk-versions}}"
+        fi
+        if [ "$INSTALL_NEEDED" = "true" ]; then
+          echo "⚠️ Existing dotnet install at ${{env.DOTNET_ROOT}} missing or unverified - wiping for a clean install"
+          rm -fr "${{env.DOTNET_ROOT}}"
+        else
+          echo "✅ All resolved SDK versions already installed and verified at ${{env.DOTNET_ROOT}}"
+        fi
+        echo "install-needed=$INSTALL_NEEDED" >> "$GITHUB_OUTPUT"
+
+    - name: "Install dotnet"
+      if: steps.check_dotnet_install.outputs.install-needed == 'true'
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+      env:
+        GITHUB_TOKEN: "${{inputs.github-token}}"
+      with:
+        cache: false
+        dotnet-version: |
+          ${{steps.resolve_dotnet_sdk_versions.outputs.sdk-versions}}
+
+    - name: "Prune old dotnet installs"
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      env:
+        CURRENT_SDK_VERSIONS: "${{steps.resolve_dotnet_sdk_versions.outputs.sdk-versions}}"
+      with:
+        script: |
+          const fs = require('fs');
+          const path = require('path');
+
+          const OLDER_VERSIONS_TO_KEEP = 1;
+          const oldFormat = /^[0-9a-f]{40}-\d+-\d+-\d+$/;
+
+          const parse = (version) => {
+            const match = /^(\d+)\.(\d+)\.(\d+)(?:-(.+))?$/.exec(version);
+            if (!match) {
+              return null;
+            }
+            return { version, major: Number(match[1]), parts: [Number(match[1]), Number(match[2]), Number(match[3])], pre: match[4] || '' };
+          };
+
+          const comparePre = (a, b) => {
+            const left = a.split('.');
+            const right = b.split('.');
+            for (let i = 0; i < Math.max(left.length, right.length); i++) {
+              if (left[i] === undefined) {
+                return -1;
+              }
+              if (right[i] === undefined) {
+                return 1;
+              }
+              const bothNumeric = /^\d+$/.test(left[i]) && /^\d+$/.test(right[i]);
+              if (bothNumeric && Number(left[i]) !== Number(right[i])) {
+                return Number(left[i]) - Number(right[i]);
+              }
+              if (!bothNumeric && left[i] !== right[i]) {
+                return left[i] < right[i] ? -1 : 1;
+              }
+            }
+            return 0;
+          };
+
+          const compare = (a, b) => {
+            for (let i = 0; i < 3; i++) {
+              if (a.parts[i] !== b.parts[i]) {
+                return a.parts[i] - b.parts[i];
+              }
+            }
+            if (a.pre === b.pre) {
+              return 0;
+            }
+            if (a.pre === '') {
+              return 1;
+            }
+            if (b.pre === '') {
+              return -1;
+            }
+            return comparePre(a.pre, b.pre);
+          };
+
+          try {
+            const dotnetRoot = path.join(process.env.GITHUB_WORKSPACE, '.dotnet');
+            const currentName = path.basename(process.env.DOTNET_ROOT);
+            const currentVersions = process.env.CURRENT_SDK_VERSIONS.split('\n').map(v => v.trim()).filter(Boolean);
+
+            const directories = fs.readdirSync(dotnetRoot, { withFileTypes: true })
+              .filter(entry => entry.isDirectory())
+              .map(entry => {
+                const sdkPath = path.join(dotnetRoot, entry.name, 'sdk');
+                const versions = fs.existsSync(sdkPath) ? fs.readdirSync(sdkPath) : [];
+                return { name: entry.name, versions };
+              });
+
+            const deletions = directories.filter(d => oldFormat.test(d.name)).map(d => d.name);
+            const candidates = directories.filter(d => !oldFormat.test(d.name));
+
+            const all = new Map();
+            for (const directory of candidates) {
+              for (const version of directory.versions) {
+                const parsed = parse(version);
+                if (parsed) {
+                  all.set(version, parsed);
+                }
+              }
+            }
+            const current = currentVersions.map(parse).filter(Boolean);
+            if (current.length === 0) {
+              core.warning('⚠️ No parsable current SDK versions - skipping prune');
+              return;
+            }
+            for (const parsed of current) {
+              all.set(parsed.version, parsed);
+            }
+
+            const keep = new Set(currentVersions);
+            const installedMajors = [...new Set(current.map(v => v.major))];
+            const lowestInstalled = Math.min(...installedMajors);
+
+            const byMajor = new Map();
+            for (const parsed of all.values()) {
+              if (!byMajor.has(parsed.major)) {
+                byMajor.set(parsed.major, []);
+              }
+              byMajor.get(parsed.major).push(parsed);
+            }
+            for (const list of byMajor.values()) {
+              list.sort((a, b) => compare(b, a));
+            }
+
+            const belowLowest = [...byMajor.keys()].filter(m => m < lowestInstalled).sort((a, b) => b - a)[0];
+
+            for (const [major, list] of byMajor) {
+              if (installedMajors.includes(major)) {
+                const anchor = current.filter(v => v.major === major).sort((a, b) => compare(b, a))[0];
+                const anchorIndex = list.findIndex(v => v.version === anchor.version);
+                list.slice(0, anchorIndex + 1 + OLDER_VERSIONS_TO_KEEP).forEach(v => keep.add(v.version));
+              } else if (major > lowestInstalled) {
+                list.forEach(v => keep.add(v.version));
+              } else if (major === belowLowest) {
+                keep.add(list[0].version);
+              }
+            }
+
+            for (const directory of candidates) {
+              if (directory.name !== currentName && directory.versions.length > 0 && !directory.versions.some(v => keep.has(v))) {
+                deletions.push(directory.name);
+              }
+            }
+
+            core.info(`ℹ️ Keeping SDK versions: ${[...keep].sort().join(', ')}`);
+            for (const name of deletions) {
+              const target = path.join(dotnetRoot, name);
+              if (path.dirname(target) !== dotnetRoot) {
+                continue;
+              }
+              fs.rmSync(target, { recursive: true, force: true });
+              core.info(`✅ Removed old dotnet install ${name}`);
+            }
+            if (deletions.length === 0) {
+              core.info('ℹ️ No old dotnet installs to remove');
+            }
+          } catch (error) {
+            core.warning(`⚠️ Pruning old dotnet installs failed: ${error.message}`);
+          }
+
+    - name: "Configure nuget feeds"
+      uses: ./.github/actions/nuget
+      with:
+        nuget-public-restore-feed-cache: "${{inputs.nuget-public-restore-feed-cache}}"
+        nuget-public-restore-feed: "${{inputs.nuget-public-restore-feed}}"
+        nuget-additional-restore-feed-release-cache: "${{inputs.nuget-additional-restore-feed-release-cache}}"
+        nuget-additional-restore-feed-prerelease-cache: "${{inputs.nuget-additional-restore-feed-prerelease-cache}}"
+        nuget-additional-restore-feed-release: "${{inputs.nuget-additional-restore-feed-release}}"
+        nuget-additional-restore-feed-prerelease: "${{inputs.nuget-additional-restore-feed-prerelease}}"
+
+    - name: "Enable dotnet tools"
+      shell: bash
+      working-directory: "${{ github.workspace }}"
+      run: |
+        rm -f dotnet-tools.json
+        rm -f .config/dotnet-tools.json
+        dotnet new tool-manifest

@@ -1,0 +1,69 @@
+# Global instructions
+
+This is an index of global instructions that apply to all projects.
+
+- Ensure consistency across all projects.
+- `credfeto/cs-template` is the canonical source for this folder; all edits must originate here and are distributed to other repositories (including `funfair-tech/funfair-server-template`) via an external sync mechanism.
+- Rule files are named `<category>.instructions.md`; code reference files are named `<category>.examples.md`.
+- All files must maintain a backlink to this index.
+- When adding a rule, check all other files for conflicts or duplication.
+
+## Always Load
+
+Read all of these before starting any task, regardless of language or context.
+
+| File | Covers |
+| --- | --- |
+| [git.instructions.md](git.instructions.md) | Prerequisites, when to run `pre-commit-check`, build/test verification, git identity/GPG, destructive commands, checking a PR out for local review with git (never `gh pr checkout`), when a local branch may be deleted without asking, ASCII-only file names, NUL-separated git file lists, branching, commits, GitHub issues, template rule escalation |
+| [claude-hooks.instructions.md](claude-hooks.instructions.md) | Claude Code `PreToolUse` hook denials: a denial means the command never ran, read its stated reason literally and retry immediately, never work around a block (change approach when the block is correct, otherwise stop and report it verbatim), tell a hook denial apart from a permission-system denial, a `dontAsk` denial refuses only that one command (rewrite it rule-compliantly and retry, never treat Bash as disabled), logging an allowlist request for a still-denied compliant command, ad-hoc commands never use `xargs` or `while IFS= read` loops, reference index of the installed hook set |
+| [tool-preferences.instructions.md](tool-preferences.instructions.md) | Which tool to reach for when more than one could do the job: `Glob` over `find` for simple file listing; repo searches exclude `.env`, `.database` and `.claude/`; `gh` or a local clone over fetching `github.com`/`githubusercontent.com` URLs |
+| [git-rebasing.instructions.md](git-rebasing.instructions.md) | When to rebase (fetch/check/rebase), the mandatory `pre-commit-check` after every rebase, version-conflict resolution when merging or rebasing |
+| [task-workflow.instructions.md](task-workflow.instructions.md) | Agent routing table, model selection, failure handling, issue/PR assignment, Workflow project board, commit cadence, preserving work that cannot be committed, resuming work, command timeouts, one long-running command at a time, ad-hoc prompt intake, prompt traceability, numbering and cross-reference conventions (enforced in CI), numbers never reused within a work item (issue and PR) |
+| [code-quality.instructions.md](code-quality.instructions.md) | Code coverage, tests, async, immutability, parameterised tests, never bypassing constructors (stop and ask for a real instance), refactoring, incidental cleanup, suppressed and unsuppressed analyzer findings from `sarif-summary` PR comments, pattern sweep, pre-existing bugs found during work, pre-commit failure handling |
+| [documentation.instructions.md](documentation.instructions.md) | README, CHANGELOG conventions |
+| [security.instructions.md](security.instructions.md) | No secrets in code, agent-found security bugs filed as public issues, input validation, output sanitisation |
+| [error-handling.instructions.md](error-handling.instructions.md) | Explicit error handling, propagation, safe surfacing |
+| [logging.instructions.md](logging.instructions.md) | Structured logging, log levels, no PII/secrets |
+| [packages.instructions.md](packages.instructions.md) | Secure versions, managed vs native, deprecated packages, human approval required for non-credfeto/funfair-tech packages (tool-mandated fixes excepted), using the system's configured package sources for lookups |
+
+## Load When Applicable
+
+Load these only when the work involves the relevant technology or context.
+
+| File | Load When | Covers |
+| --- | --- | --- |
+| [dotnet.instructions.md](dotnet.instructions.md) | Any `.csproj`, `.sln`, or `.slnx` file is present | Build/test, solution structure, test patterns, no `GetUninitializedObject`, source-generated logging (CA1873 `IsEnabled` guards, FFS0020 logger parameter, `[Conditional("DEBUG")]` pitfalls, elapsed-time timers), ValueTask, CancellationToken, nullable reference types, warning suppression, NuGet audit |
+| [docker.instructions.md](docker.instructions.md) | Any `Dockerfile`, `Containerfile`, `.dockerignore`, `docker-compose*.yml`, `docker-compose*.yaml`, `compose.yml`, or `compose.yaml` is present, or container work is needed | Docker/Podman runner detection, Dockerfile authoring, compose conventions, image security basics |
+| [docker-rootless-podman-systemd.instructions.md](docker-rootless-podman-systemd.instructions.md) | Configuring or debugging rootless podman run by an unprivileged **system** systemd service with no login session | D-Bus session bus, UID resolution, cgroup manager, `KillMode`, systemd sandboxing directives, timer migration, bind-mounted secret permissions, firewalld interaction, image pruning |
+| [analyzer-conflicts.instructions.md](analyzer-conflicts.instructions.md) | Fixing one .NET diagnostic raises another (a diagnostic-vs-diagnostic conflict) | Pre-approved resolution table for conflicting diagnostic pairs (seeded with `IDE0028` vs `MA0002`), stop-and-ask for unlisted pairs, adding entries |
+| [dotnet-owned-packages.instructions.md](dotnet-owned-packages.instructions.md) | Any `.csproj`, `.sln`, or `.slnx` file is present, or a `Credfeto.*`/`FunFair.*` package is encountered | Registry of org-owned NuGet packages with source repos: never decompile these |
+| [sql.instructions.md](sql.instructions.md) | Any `.sql` file or SQL project is present | SQL linting, local DB connection, performance optimisation |
+| [shell-scripts.instructions.md](shell-scripts.instructions.md) | Any `.sh` file is present or shell script work is needed | Shebang, linting, output helper conventions (`die`/`success`/`info`), NUL-separated git file lists, argument size limits |
+| [shell.firewall.instructions.md](shell.firewall.instructions.md) | Firewall rule management is needed | `firewall-cmd` rules, private network constants |
+| [github-workflows.instructions.md](github-workflows.instructions.md) | Any `.github/workflows/*.yml` file is present or being created | Action policy, composite actions, step ordering, permissions, version pinning |
+| [npm.instructions.md](npm.instructions.md) | Any `package.json` is present or npm packages are being added, updated or installed | Exact version pinning, `--save-exact`, no semver ranges, explicit updates, plain-command npm rules, installing with `npm ci --ignore-scripts` |
+| [python.instructions.md](python.instructions.md) | Any `pyproject.toml`, `requirements.txt`, `setup.py`, `setup.cfg`, or `.py` file is present, or Python work is needed | Virtual environment requirement, Python 2 prohibition, latest stable Python 3, idiomatic/modular/testable code style |
+| [learnings.instructions.md](learnings.instructions.md) | A memory file (`ai/global` or `ai/local`) is created or updated to record a new learning | Filing a matching human-readable issue in `credfeto/credfeto-notes` |
+| [api.instructions.md](api.instructions.md) | An HTTP API is being created or modified | `.http` test file requirements |
+| [performance.instructions.md](performance.instructions.md) | Performance-critical code is being written or optimised | Design principles, benchmarks, optimisation workflow |
+| [coverage-ratchet.instructions.md](coverage-ratchet.instructions.md) | Acting as Orchestrator running the AI Coverage board phase | Whole-repo per-language coverage ratchet gated on the committed `COVERAGE.md` (per-component + overall figures, read live from `origin/main`, no PR comment), bootstrap/dependency-only-branch skip rules, per-language extraction commands, phase decision procedure |
+| [github-cli.instructions.md](github-cli.instructions.md) | Running any `gh` command | Full `gh` command reference (issues and the issue title format, PRs, labels, search, api/graphql, proxy behaviour, HEREDOC bodies), choosing between `cfwf` and `gh` (and raising a `credfeto-orchestrator` issue for any `gh api`/`--json` use `cfwf` does not cover), GitHub state lagging behind writes (do not spam while waiting), common mistakes |
+| [agent-roles.instructions.md](agent-roles.instructions.md) | You are acting as a named agent (Orchestrator, Code Writer, Code Tester, etc.) | Detailed per-agent responsibilities and behaviour, including the Workflow board (`cfwf`) and checking live state before asking the human or reporting |
+| [changelog.instructions.md](changelog.instructions.md) | You need to add or update a changelog entry, or you are the Changelog agent | Format, tooling (`dotnet changelog`), when to add entries, add/remove commands |
+| [git-commits.instructions.md](git-commits.instructions.md) | You are about to commit, or you are the Committer agent | Commit size rules, empty commit check, push cadence, Conventional Commits format, pattern sweep commit body (per-file rationale) |
+| [gitignore.instructions.md](gitignore.instructions.md) | Any `.gitignore` file is being created or modified | IDE file exclusions, root `.gitignore` ownership, consistency checks |
+| [language.instructions.md](language.instructions.md) | Writing code, documentation, comments, or commit messages | UK English for docs/comments; platform convention for identifiers; no em dash characters |
+
+## Reference Files (Load on Demand)
+
+These contain code examples only. Load them when actively writing or modifying the scripts they describe, not as part of routine rule-loading.
+
+| File | Load When |
+| --- | --- |
+| [shell-scripts.examples.md](shell-scripts.examples.md) | Writing or modifying shell scripts: provides `die`, `success`, `info`, `is_ai_agent` implementations |
+| [shell.firewall.examples.md](shell.firewall.examples.md) | Writing firewall scripts: provides `allow_ipv4`, `allow_ipv6`, `open_port_for_private_networks` implementations |
+| [github-workflows.examples.md](github-workflows.examples.md) | Creating or scaffolding a local composite action: provides action template, explicit inputs, env-var validation step |
+| [sql.examples.md](sql.examples.md) | Writing SQL or database connection scripts: provides `.database` file format, `sqlcmd` invocation, and `SET STATISTICS` baseline template |
+| [dotnet.examples.md](dotnet.examples.md) | Writing .NET DI setup tests, or source-generated logging that needs an `IsEnabled` guard: provides `AddMockedService` and `IOptions` patterns, and the public-wrapper plus private `[LoggerMessage]` guard pattern |
+| [git.examples.md](git.examples.md) | Filing a template rule escalation issue: provides the `gh issue create` command |
+| [learnings.examples.md](learnings.examples.md) | Filing a `credfeto-notes` learning-capture issue: provides the `gh issue create` command |

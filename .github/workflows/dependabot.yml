@@ -1,0 +1,85 @@
+--- # Dependabot: rebase open pull requests
+# Maintain in repo: funfair-server-template
+name: "Dependabot: Rebase"
+on:
+  push:
+    branches:
+      - main
+  release:
+    types: [published]
+
+concurrency:
+  group: "${{github.workflow}}-${{github.ref}}"
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  auto-rebase:
+    runs-on: ubuntu-latest
+
+    if: github.ref == 'refs/heads/main' || github.event_name == 'release'
+    timeout-minutes: 5
+    steps:
+      - name: "Check Required Secrets"
+        shell: bash
+        run: |
+          if [ -z "${{secrets.SOURCE_PUSH_TOKEN}}" ]; then
+            echo "::error::SOURCE_PUSH_TOKEN is required but not set"
+            exit 1
+          fi
+
+      - name: "Initialise Workspace"
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: sudo chown -R "$USER:$USER" "$GITHUB_WORKSPACE"
+
+      - name: "Set Active Environment"
+        shell: bash
+        run: |
+          {
+            echo "ACTIVE_RUNNER_NAME=${{runner.name}}"
+            echo "ACTIVE_HOSTNAME=$HOSTNAME"
+            echo "ACTIVE_USER=$USER"
+          } >> "$GITHUB_ENV"
+
+      - name: "Rebase"
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          github-token: "${{secrets.SOURCE_PUSH_TOKEN}}"
+          script: |
+            const pulls = await github.paginate(github.rest.pulls.list, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open'
+            });
+            const dependabotPrs = pulls.filter(pr => pr.user.login === 'dependabot[bot]');
+            for (const pr of dependabotPrs) {
+              const { data: detail } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number
+              });
+              if (detail.mergeable_state === 'dirty' || detail.mergeable_state === 'behind') {
+                const comments = await github.paginate(github.rest.issues.listComments, {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number
+                });
+                const alreadyUpToDate = comments.some(c =>
+                  c.user.login === 'dependabot[bot]' && (
+                    c.body.includes("Looks like this PR is already up-to-date with main!") ||
+                    c.body.includes("Looks like this PR has been edited by someone other than Dependabot.")
+                  )
+                );
+                if (!alreadyUpToDate) {
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: pr.number,
+                    body: '@dependabot rebase'
+                  });
+                }
+              }
+            }

@@ -1,0 +1,44 @@
+--- # Fail if merge conflict markers are found in tracked files
+# Maintain in repo: funfair-server-template
+name: "Check No Merge Conflicts"
+description: "Fails if merge conflict markers are found in tracked files"
+
+runs:
+  using: composite
+  steps:
+    - name: "Check for merge conflicts"
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      with:
+        script: |
+          const { execSync } = require('node:child_process');
+
+          let output = '';
+
+          try {
+            output = execSync("git grep -l -E -e '^<<<<<<<' -e '^>>>>>>>' -- .", {
+              encoding: 'utf8',
+              stdio: ['ignore', 'pipe', 'pipe'],
+            });
+          } catch (error) {
+            if (error.status === 1) {
+              core.info('No merge conflicts found.');
+              return;
+            }
+
+            core.setFailed(`git grep failed (exit ${error.status}): ${error.stderr || error.message}`);
+            return;
+          }
+
+          const files = Array.from(new Set(output.split(/\r?\n/).filter(Boolean)))
+            .sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base' }) || left.localeCompare(right));
+
+          if (files.length === 0) {
+            core.info('No merge conflicts found.');
+            return;
+          }
+
+          for (const file of files) {
+            core.error(`Merge conflict found in ${file}`, { file });
+          }
+
+          core.setFailed('Found merge conflicts.');

@@ -1,0 +1,579 @@
+--- # Build and deploy packages
+# Maintain in repo: funfair-server-template
+name: "Build and deploy"
+description: "Builds and deploys the source"
+inputs:
+  # GENERAL
+  production-build:
+    description: "Whether to build a production build"
+    required: true
+
+  # NPM
+  npm-production-packager-version:
+    description: "Version of the NPM output nuget packager to use"
+    required: false
+  npm-content-package-wallet-password:
+    description: "Password to unlock /Wallet.json"
+    required: false
+  npm-package-store-signing-wallet:
+    description: "Store signing wallet.json"
+    required: false
+  npm-package-store-signing-wallet-password:
+    description: "Password to unlock NPM_PACKAGE_STORE_SIGNING_WALLET"
+    required: false
+  npm-registry:
+    description: "The NPM Registry to use"
+    required: true
+  npm-cache-cert:
+    description: "The NPM Registry cert"
+    required: false
+
+  # NUGET
+  nuget-public-restore-feed-cache:
+    description: "Local cache of public nuget feed"
+    required: false
+  nuget-public-restore-feed:
+    description: "public nuget feed"
+    required: false
+  nuget-additional-restore-feed-prerelease-cache:
+    description: "Cache of any additional nuget feed to download packages from"
+    required: false
+  nuget-additional-restore-feed-release-cache:
+    description: "Cache of Any additional nuget feed to download packages from"
+    required: false
+  nuget-additional-restore-feed-release:
+    description: "Any additional nuget feed to download packages from"
+    required: false
+  nuget-additional-restore-feed-prerelease:
+    description: "Any additional nuget feed to download packages from"
+    required: false
+  nuget-pack:
+    description: "Whether to pack packages with feeds"
+    required: false
+  nuget-feed:
+    description: "Nuget feed to push packages to"
+    required: false
+  nuget-feed-type:
+    description: >-
+      Which feed to publish packages to: 'NUGET' publishes to nuget-feed via Trusted Publishing
+      (nuget.org is deprecating static API keys, so no key is used), 'SLEET' publishes via Sleet,
+      empty/unset skips publishing
+    required: false
+  nuget-username:
+    description: "nuget.org username (profile name) the Trusted Publishing policy is registered against"
+    required: false
+  sleet-config:
+    description: "Sleet config file"
+    required: false
+  sleet-feed:
+    description: "Sleet feed to push packages to"
+    required: false
+  dotnet-docker-platform:
+    description: "Dotnet docker platform (e.g. linux-arm64)"
+    required: false
+  dotnet-container-platform:
+    description: "Docker container platform (e.g. linux/arm64)"
+    required: false
+
+  # DEPLOYMENT
+  project-to-publish:
+    description: "Package (root) to deploy"
+    required: false
+
+  # AWS
+  aws-access-key-id:
+    description: "AWS Access key"
+    required: true
+  aws-secret-access-key:
+    description: "AWS Secret key"
+    required: true
+  aws-region:
+    description: "AWS region"
+    required: true
+  docker-container-registry:
+    description: "Docker Container Registry"
+    required: true
+  aws-load-balancer-hostname:
+    description: "LoadBalancer Hostname"
+    required: true
+  aws-load-balancer-priority:
+    description: "LoadBalancer Priority"
+    required: true
+  api-host:
+    description: "API Hostname"
+    required: true
+  api-prefix:
+    description: "API prefix"
+    required: true
+
+  # CLOUD FORMATION
+  cloud-formation-deploy:
+    description: "Whether to deploy to cloudformation"
+    required: true
+  cloud-formation-stack:
+    description: "The Cloud Formation stack to deploy as"
+    required: true
+
+  # DOCKER
+  docker-username:
+    description: "Docker username"
+    required: true
+  docker-access-token:
+    description: "Docker access token"
+    required: true
+  docker-app-owner:
+    description: "docker app owner"
+    required: true
+  docker-app-name:
+    description: "docker app name"
+    required: true
+  build-tag:
+    description: "Build tag"
+    required: true
+
+  # GITHUB
+  github-token:
+    description: "Github Token"
+    required: true
+  create-release:
+    description: "Whether to create a release in github"
+    required: true
+
+  # DATABASE
+  sql-server:
+    description: "SQL Server to connect to"
+    required: false
+  sql-db:
+    description: "Database to deploy to"
+    required: false
+  sql-user:
+    description: "User to connect to the database as"
+    required: false
+  sql-password:
+    description: "Password for SQL_USER"
+    required: false
+
+runs:
+  using: "composite"
+  steps:
+
+    - name: "Check Repo Visibility"
+      uses: ./.github/actions/check-repo-visibility
+      id: visibility
+
+    - name: "Determine Repo Visibility Label"
+      id: repo-visibility
+      shell: bash
+      run: echo "value=${{steps.visibility.outputs.is-public == 'true' && 'public' || 'private'}}" >> "$GITHUB_OUTPUT"
+
+    - name: "Parameter Summary"
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      env:
+        NUGET_FEED_TYPE: "${{inputs.nuget-feed-type}}"
+        PROJECT_TO_PUBLISH: "${{inputs.project-to-publish}}"
+        NUGET_FEED: "${{inputs.nuget-feed}}"
+        NUGET_PUBLIC_RESTORE_FEED_CACHE: "${{inputs.nuget-public-restore-feed-cache}}"
+        NUGET_PUBLIC_RESTORE_FEED: "${{inputs.nuget-public-restore-feed}}"
+        NUGET_ADDITIONAL_RESTORE_FEED_RELEASE_CACHE: "${{inputs.nuget-additional-restore-feed-release-cache}}"
+        NUGET_ADDITIONAL_RESTORE_FEED_PRERELEASE_CACHE: "${{inputs.nuget-additional-restore-feed-prerelease-cache}}"
+        NUGET_ADDITIONAL_RESTORE_FEED_RELEASE: "${{inputs.nuget-additional-restore-feed-release}}"
+        NUGET_ADDITIONAL_RESTORE_FEED_PRERELEASE: "${{inputs.nuget-additional-restore-feed-prerelease}}"
+        NUGET_PACK: "${{inputs.nuget-pack}}"
+      with:
+        script: |
+          const names = [
+            'NUGET_FEED_TYPE', 'PROJECT_TO_PUBLISH', 'NUGET_FEED',
+            'NUGET_PUBLIC_RESTORE_FEED_CACHE', 'NUGET_PUBLIC_RESTORE_FEED',
+            'NUGET_ADDITIONAL_RESTORE_FEED_RELEASE_CACHE', 'NUGET_ADDITIONAL_RESTORE_FEED_PRERELEASE_CACHE',
+            'NUGET_ADDITIONAL_RESTORE_FEED_RELEASE', 'NUGET_ADDITIONAL_RESTORE_FEED_PRERELEASE', 'NUGET_PACK'
+          ];
+          for (const name of names) {
+            core.info(`${name}: ${process.env[name]}`);
+          }
+
+# yamllint disable rule:line-length
+    - name: "Check file existence"
+      id: check_files
+      shell: bash
+      run: |
+        {
+        [[ -d src && -f src/global.json && '${{hashfiles('**/*.csproj', '**/*.cs')}}' != '' ]] && CSPROJ_EXIST=true || CSPROJ_EXIST=false;
+        [[ -d src && -f src/global.json && '${{hashfiles('**/*.sln', '**/*.slnx')}}' != '' ]] && SLN_EXIST=true || SLN_EXIST=false;
+        echo "CSPROJ_EXIST=$CSPROJ_EXIST";
+        echo "SLN_EXIST=$SLN_EXIST";
+        [[ "$CSPROJ_EXIST" == true && "$SLN_EXIST" == true ]] && echo 'DOTNET_EXIST=true' || echo 'DOTNET_EXIST=false';
+        [[ -d db && '${{hashfiles('**/*.sql')}}' != '' ]] && echo 'SQL_EXIST=true' || echo 'SQL_EXIST=false';
+        [[ -d src && -f src/package.json && -f src/package-lock.json && '${{hashfiles('src/package.json', 'src/package-lock.json')}}' != '' ]] && echo 'NPM_EXIST_SRC=true' || echo 'NPM_EXIST_SRC=false';
+        [[ -f package.json && -f package-lock.json && '${{hashfiles('package.json', 'package-lock.json')}}' != '' ]] && echo 'NPM_EXIST_ROOT=true' || echo 'NPM_EXIST_ROOT=false';
+        [[ -f Wallet.json ]] && echo 'NPM_SIGNING_EXIST=true' || echo 'NPM_SIGNING_EXIST=false';
+        [[ -f Dockerfile && '${{hashfiles('Dockerfile')}}' != '' ]] && echo 'DOCKERFILE_EXIST=true' || echo 'DOCKERFILE_EXIST=false';
+        [[ -f healthcheck && '${{hashfiles('healthcheck')}}' != '' ]] && echo 'HEALTHCHECK_EXIST=true' || echo 'HEALTHCHECK_EXIST=false';
+        [[ -f cloudformation.json && '${{hashfiles('cloudformation.json')}}' != '' ]] && echo 'CLOUDFORMATION_EXIST=true'  || echo 'CLOUDFORMATION_EXIST=false'
+        } >> "$GITHUB_OUTPUT"
+# yamllint enable rule:line-length
+
+    - name: "Check Files Results"
+      shell: bash
+      env:
+        CHECK_FILES_OUTPUTS: "${{ toJSON(steps.check_files.outputs) }}"
+      run: echo "$CHECK_FILES_OUTPUTS"
+
+    - name: "Validate CloudFormation template"
+      if: |-
+        steps.check_files.outputs.DOTNET_EXIST == 'true' &&
+        steps.check_files.outputs.CLOUDFORMATION_EXIST == 'true' &&
+        inputs.cloud-formation-deploy == 'true' &&
+        inputs.docker-app-name != ''
+      uses: ./.github/actions/cloudformation-validate
+      with:
+        template: "cloudformation.json"
+        aws-access-key-id: ${{inputs.aws-access-key-id}}
+        aws-secret-access-key: ${{inputs.aws-secret-access-key}}
+        aws-region: ${{inputs.aws-region}}
+
+    - name: "Prepare results and dist folders"
+      working-directory: "${{github.workspace}}"
+      shell: bash
+      run: |
+        mkdir -p "${{github.workspace}}/results" "${{github.workspace}}/dist"
+
+    - name: "Install Build tools"
+      uses: ./.github/actions/build-tools
+      with:
+        github-token: "${{inputs.github-token}}"
+        nuget-public-restore-feed-cache: "${{inputs.nuget-public-restore-feed-cache}}"
+        nuget-public-restore-feed: "${{inputs.nuget-public-restore-feed}}"
+        nuget-additional-restore-feed-release-cache: "${{inputs.nuget-additional-restore-feed-release-cache}}"
+        nuget-additional-restore-feed-prerelease-cache: "${{inputs.nuget-additional-restore-feed-prerelease-cache}}"
+        nuget-additional-restore-feed-release: "${{inputs.nuget-additional-restore-feed-release}}"
+        nuget-additional-restore-feed-prerelease: "${{inputs.nuget-additional-restore-feed-prerelease}}"
+
+    - name: "Set up QEMU"
+      if: steps.check_files.outputs.DOCKERFILE_EXIST == 'true'
+      uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+    - name: "Configure Docker"
+      if: steps.check_files.outputs.DOCKERFILE_EXIST == 'true'
+      uses: ./.github/actions/docker-setup
+      with:
+        aws-access-key-id: "${{inputs.aws-access-key-id}}"
+        aws-secret-access-key: "${{inputs.aws-secret-access-key}}"
+        aws-region: "${{inputs.aws-region}}"
+        docker-container-registry: "${{inputs.docker-container-registry}}"
+        docker-username: "${{inputs.docker-username}}"
+        docker-access-token: "${{inputs.docker-access-token}}"
+
+# yamllint disable rule:line-length
+    - name: "Check Build Tools Requirements"
+      id: build_tools
+      shell: bash
+      env:
+        DOTNET_EXIST: "${{steps.check_files.outputs.DOTNET_EXIST}}"
+        NPM_EXIST_SRC: "${{steps.check_files.outputs.NPM_EXIST_SRC}}"
+        NPM_EXIST_ROOT: "${{steps.check_files.outputs.NPM_EXIST_ROOT}}"
+      run: |
+        [[ "$DOTNET_EXIST" == 'true' || "$NPM_EXIST_SRC" == 'true' || "$NPM_EXIST_ROOT" == 'true' ]] && echo 'BUILD_ENV=true' >> "$GITHUB_OUTPUT" || echo 'BUILD_ENV=false' >> "$GITHUB_OUTPUT"
+# yamllint enable rule:line-length
+
+    - name: "Install Multi-push tool"
+      if: |-
+        steps.build_tools.outputs.BUILD_ENV == 'true' &&
+        inputs.nuget-pack == 'true'
+      uses: ./.github/actions/dotnet-tool
+      with:
+        tool-name: "Credfeto.Package.Push"
+        tool-version: "latest"
+
+    - name: "Get Unique Build Number"
+      uses: ./.github/actions/build-version
+      with:
+        github-token: "${{inputs.github-token}}"
+
+    - name: "Find Pull Request for branch"
+      id: find_pull_request
+      if: steps.check_files.outputs.DOTNET_EXIST == 'true'
+      # A lookup failure (transient API error, missing pull-requests permission in a
+      # not-yet-synced consuming repo) must degrade to a non-pre-release build, not fail the build.
+      continue-on-error: true
+      uses: ./.github/actions/find-pull-request
+      with:
+        branch: "${{github.head_ref || github.ref_name}}"
+        github-token: "${{inputs.github-token}}"
+
+    - name: "Deploy check - Default"
+      shell: bash
+      run: |
+        { echo "DEPLOY=false"; echo "RELEASE=false"; } >> "$GITHUB_ENV"
+
+    - name: "Deploy check - Is main or master"
+      if: endsWith(env.BUILD_VERSION, '-main') || endsWith(env.BUILD_VERSION, '-master')
+      shell: bash
+      run: |
+        { echo "DEPLOY=true"; echo "RELEASE=false"; } >> "$GITHUB_ENV"
+
+    - name: Deploy check - Is release branch
+      if: "!contains(env.BUILD_VERSION, '-')"
+      shell: bash
+      run: |
+        { echo "DEPLOY=true"; echo "RELEASE=true"; } >> "$GITHUB_ENV"
+
+    - name: "Deploy check - Is Dependabot"
+      if: (github.actor == 'dependabot[bot]')
+      shell: bash
+      run: |
+        { echo "DEPLOY=false";  } >> "$GITHUB_ENV"
+
+    - name: "Install Package Builder"
+      if: steps.check_files.outputs.NPM_EXIST_SRC == 'true' && steps.check_files.outputs.NPM_SIGNING_EXIST == 'true'
+      uses: ./.github/actions/dotnet-tool
+      with:
+        tool-name: "FunFair.Content.Packager.Cmd"
+        tool-version: "${{inputs.npm-production-packager-version}}"
+
+    - name: "Install Package Store Signer"
+      if: steps.check_files.outputs.NPM_EXIST_SRC == 'true' && steps.check_files.outputs.NPM_SIGNING_EXIST == 'true'
+      uses: ./.github/actions/dotnet-tool
+      with:
+        tool-name: "FunFair.Content.PackageSigner.Cmd"
+        tool-version: "${{inputs.npm-production-packager-version}}"
+
+    - name: "Install Changelog Tool"
+      if: steps.build_tools.outputs.BUILD_ENV == 'true'
+      uses: ./.github/actions/dotnet-tool
+      with:
+        tool-name: "Credfeto.Changelog.Cmd"
+        tool-version: "latest"
+
+    - name: "Create Release Notes"
+      if: steps.build_tools.outputs.BUILD_ENV == 'true'
+      uses: ./.github/actions/dotnet-tool-run
+      with:
+        working-directory: "${{github.workspace}}"
+        tool-name: "changelog"
+        tool-arguments: "\"${{github.workspace}}/CHANGELOG.md\" --extract RELEASE_NOTES.md --version \"${{env.BUILD_VERSION}}\""
+
+    - name: "Read Release Notes"
+      id: release_notes
+      if: steps.build_tools.outputs.BUILD_ENV == 'true'
+      shell: bash
+      working-directory: "${{github.workspace}}"
+      run: |
+        if [ -f RELEASE_NOTES.md ]; then
+          {
+            echo "RELEASE_NOTES<<RELEASE_NOTES_EOF"
+            cat RELEASE_NOTES.md
+            echo
+            echo "RELEASE_NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+        fi
+
+    ############################################################################################################
+    # DOTNET BUILD
+    ############################################################################################################
+    - name: "Dotnet: Build"
+      if: steps.check_files.outputs.DOTNET_EXIST == 'true'
+      uses: ./.github/actions/dotnet
+      with:
+        production-build: "${{inputs.production-build}}"
+        build-version: "${{env.BUILD_VERSION}}"
+        release-notes: "${{steps.release_notes.outputs.RELEASE_NOTES}}"
+        release: "${{env.RELEASE}}"
+        pre-release-build: "${{steps.find_pull_request.outputs.pre-release-build || 'false'}}"
+        build-sql: "${{steps.check_files.outputs.SQL_EXIST}}"
+        db-folder: "${{github.workspace}}/db"
+        nuget-pack: "${{inputs.nuget-pack}}"
+        nuget-feed: "${{inputs.nuget-feed}}"
+        nuget-feed-type: "${{inputs.nuget-feed-type}}"
+        nuget-username: "${{inputs.nuget-username}}"
+        sleet-config: "${{inputs.sleet-config}}"
+        sleet-feed: "${{inputs.sleet-feed}}"
+        github-token: "${{inputs.github-token}}"
+        project-to-publish: "${{inputs.project-to-publish}}"
+        dotnet-docker-platform: "${{inputs.dotnet-docker-platform}}"
+
+    ############################################################################################################
+    # Merge and summarise Roslyn analyzer SARIF files
+    ############################################################################################################
+    - name: "Merge Roslyn analyzer SARIF files"
+      # Each project's ErrorLog writes its own file (a shared path would have each project's
+      # compile overwrite the last), so merge them into one before upload: code scanning
+      # rejects a directory upload containing multiple files from the same tool.
+      if: |-
+        !cancelled() &&
+        steps.check_files.outputs.DOTNET_EXIST == 'true'
+      uses: ./.github/actions/sarif-merge
+      with:
+        glob: "*.sarif"
+        exclude: "*.Tests.sarif"
+        output: "DotNet.sarif"
+
+    - name: "Summarise Roslyn analyzer findings"
+      if: |-
+        !cancelled() &&
+        steps.check_files.outputs.DOTNET_EXIST == 'true'
+      uses: ./.github/actions/sarif-summary
+      with:
+        title: "Roslyn analyzer findings"
+        glob: "DotNet.sarif"
+        pr-number: "${{steps.find_pull_request.outputs.number}}"
+        pr-lookup-done: "${{steps.find_pull_request.outcome != 'skipped'}}"
+        github-token: "${{inputs.github-token}}"
+
+    ############################################################################################################
+    # NPM BUILD
+    ############################################################################################################
+    - name: "Npm: Build"
+      if: steps.check_files.outputs.NPM_EXIST_SRC == 'true' || steps.check_files.outputs.NPM_EXIST_ROOT == 'true'
+      uses: ./.github/actions/npm
+      with:
+        build-version: "${{env.BUILD_VERSION}}"
+        npm-content-package-wallet-password: "${{inputs.npm-content-package-wallet-password}}"
+        npm-package-store-signing-wallet: "${{inputs.npm-package-store-signing-wallet}}"
+        npm-package-store-signing-wallet-password: "${{inputs.npm-package-store-signing-wallet-password}}"
+        npm-signing: "${{steps.check_files.outputs.NPM_SIGNING_EXIST}}"
+        npm-registry: "${{inputs.npm-registry}}"
+        npm-cache-cert: "${{inputs.npm-cache-cert}}"
+        project-to-publish: "${{inputs.project-to-publish}}"
+
+    ############################################################################################################
+    # DEPLOY TO DOCKER
+    ############################################################################################################
+
+    - name: "Docker"
+      shell: bash
+      run: |
+        echo "CSPROJ_EXIST: ${{steps.check_files.outputs.CSPROJ_EXIST}}"
+        echo "SLN_EXIST: ${{steps.check_files.outputs.SLN_EXIST}}"
+        echo "DOCKERFILE_EXIST: ${{steps.check_files.outputs.DOCKERFILE_EXIST}}"
+        echo "HEALTHCHECK_EXIST: ${{steps.check_files.outputs.HEALTHCHECK_EXIST}}"
+        echo "DOCKER_APP_OWNER: ${{inputs.docker-app-owner}}"
+        echo "DOCKER_APP_NAME: ${{inputs.docker-app-name}}"
+        echo "DEPLOY: ${{env.DEPLOY}}"
+        echo "Registry: ${{inputs.docker-container-registry}}"
+
+    - name: "Copy docker: Dockerfile"
+      if: |-
+        steps.check_files.outputs.DOTNET_EXIST == 'true' &&
+        steps.check_files.outputs.DOCKERFILE_EXIST == 'true' &&
+        inputs.docker-app-name != '' &&
+        inputs.dotnet-docker-platform != ''
+      shell: bash
+      run: cp "${{github.workspace}}/Dockerfile" "${{github.workspace}}/server-dist/${{inputs.dotnet-docker-platform}}"
+
+    - name: "Copy docker: healthcheck"
+      if: |-
+        steps.check_files.outputs.DOTNET_EXIST == 'true' &&
+        steps.check_files.outputs.HEALTHCHECK_EXIST == 'true' &&
+        inputs.docker-app-name != '' &&
+        inputs.dotnet-docker-platform != ''
+      shell: bash
+      run: cp "${{github.workspace}}/healthcheck" "${{github.workspace}}/server-dist/${{inputs.dotnet-docker-platform}}"
+
+    - name: "Dotnet: Build Docker Container"
+      if: |-
+        steps.check_files.outputs.DOTNET_EXIST == 'true' &&
+        steps.check_files.outputs.DOCKERFILE_EXIST == 'true' &&
+        inputs.docker-app-owner != '' &&
+        inputs.docker-app-name != '' &&
+        inputs.dotnet-docker-platform != ''
+      uses: ./.github/actions/docker-build-to-registry
+      with:
+        deploy: "${{env.DEPLOY}}"
+        build-version: "${{env.BUILD_VERSION}}"
+        build-tag: "${{inputs.build-tag}}"
+        app-owner: "${{inputs.docker-app-owner}}"
+        app-name: "${{inputs.docker-app-name}}"
+        docker-container-registry: "${{inputs.docker-container-registry}}"
+        container-source: "${{github.workspace}}/server-dist/${{inputs.dotnet-docker-platform}}"
+        container-platform: "${{inputs.dotnet-container-platform}}"
+
+    - name: "Dotnet: SQL Deploy"
+      if: |-
+        steps.check_files.outputs.DOTNET_EXIST == 'true' &&
+        steps.check_files.outputs.SQL_EXIST == 'true' &&
+        inputs.cloud-formation-deploy == 'true' &&
+        inputs.docker-app-name != '' &&
+        inputs.sql-server != '' &&
+        inputs.sql-db != '' &&
+        inputs.sql-user != '' &&
+        inputs.sql-password != '' &&
+        env.DEPLOY == 'true'
+      uses: ./.github/actions/database-deploy
+      with:
+        sql-server: "${{inputs.sql-server}}"
+        sql-db: "${{inputs.sql-db}}"
+        sql-user: "${{inputs.sql-user}}"
+        sql-password: "${{inputs.sql-password}}"
+        db-folder: "${{github.workspace}}/db"
+
+    - name: "Dotnet: Deploy Check"
+      shell: bash
+      run: |
+        echo ">>Deploy Config Check<<"
+        echo "CSPROJ_EXIST: ${{steps.check_files.outputs.CSPROJ_EXIST}}"
+        echo "SLN_EXIST: ${{steps.check_files.outputs.SLN_EXIST}}"
+        echo "CLOUDFORMATION_EXIST: ${{steps.check_files.outputs.CLOUDFORMATION_EXIST}}"
+        echo "CLOUD_FORMATION_DEPLOY: ${{inputs.cloud-formation-deploy}}"
+        echo "DOCKER_APP_NAME: ${{inputs.docker-app-name}}"
+        echo "NPM_SIGNING_EXIST: ${{steps.check_files.outputs.NPM_SIGNING_EXIST}}"
+        echo "DEPLOY: ${{env.DEPLOY}}"
+
+    - name: "Dotnet: Cloudformation Deploy"
+      if: |-
+        steps.check_files.outputs.DOTNET_EXIST == 'true' &&
+        steps.check_files.outputs.CLOUDFORMATION_EXIST == 'true' &&
+        inputs.cloud-formation-deploy == 'true' &&
+        inputs.docker-app-name != '' &&
+        env.DEPLOY == 'true'
+      uses: ./.github/actions/dispatch-deploy
+      with:
+        cloud-formation-stack: "${{inputs.cloud-formation-stack}}"
+        cloud-formation-template-file: "cloudformation.json"
+        build-version: "${{env.BUILD_VERSION}}"
+        docker-app-owner: "${{inputs.docker-app-owner}}"
+        docker-app-name: "${{inputs.docker-app-name}}"
+        api-host: "${{inputs.api-host}}"
+        api-prefix: "${{inputs.api-prefix}}"
+        aws-load-balancer-hostname: "${{inputs.aws-load-balancer-hostname}}"
+        aws-load-balancer-priority: "${{inputs.aws-load-balancer-priority}}"
+        docker-container-registry: "${{inputs.docker-container-registry}}"
+        github-token: "${{inputs.github-token}}"
+
+    - name: "Dotnet: NPM Deploy"
+      if: |-
+        (steps.check_files.outputs.NPM_EXIST_SRC == 'true' || steps.check_files.outputs.NPM_EXIST_ROOT == 'true') &&
+        steps.check_files.outputs.NPM_SIGNING_EXIST == 'true' &&
+        env.DEPLOY == 'true'
+      uses: ./.github/actions/sleet
+      with:
+        sleet-config: "${{inputs.sleet-config}}"
+        sleet-feed: "${{inputs.sleet-feed}}"
+
+    ############################################################################################################
+    # Create GitHub Release
+    ############################################################################################################
+    - name: "Create Release"
+      if: steps.build_tools.outputs.BUILD_ENV == 'true' && inputs.create-release == 'true'
+      uses: ./.github/actions/create-release
+      with:
+        github-token: "${{inputs.github-token}}"
+        version: "${{env.BUILD_VERSION}}"
+        release-notes-file: "RELEASE_NOTES.md"
+
+    ############################################################################################################
+    # Software Bill of materials
+    ############################################################################################################
+    - name: "Software Bill of materials"
+      if: steps.build_tools.outputs.BUILD_ENV == 'true'
+      uses: ./.github/actions/sbom
+      with:
+        repo-visibility: "${{steps.repo-visibility.outputs.value}}"
+
+    ############################################################################################################
+    # Upload Sarif files to GitHub
+    ############################################################################################################
+    - name: "Upload SARIF file for diagnostics"
+      uses: ./.github/actions/sarif
+      with:
+        repo-visibility: "${{steps.repo-visibility.outputs.value}}"
+        repo-fork: "${{steps.visibility.outputs.is-fork}}"

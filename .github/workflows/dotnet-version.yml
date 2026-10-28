@@ -1,0 +1,182 @@
+---  # Create a new branch for the latest (released) dotnet version if there's an update
+# Maintain in repo: funfair-server-template
+name: "Repo: Update Dotnet Version to latest released version"
+on:
+  push:
+    branches:
+      - "main"
+    paths:
+      - ".github/workflows/dotnet-version.yml"
+      - ".github/actions/dotnet-install/**"
+      - ".github/actions/nuget/**"
+  schedule:
+    - cron: "0 1 * * *"
+
+concurrency:
+  group: "${{github.workflow}}-${{github.ref}}"
+  cancel-in-progress: false
+
+jobs:
+  repo-info:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    outputs:
+      is_template: "${{steps.visibility.outputs.is-template}}"
+
+    steps:
+      - name: "Initialise Workspace"
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: sudo chown -R "$USER:$USER" "$GITHUB_WORKSPACE"
+
+      - name: "Set Active Environment"
+        shell: bash
+        run: |
+          {
+            echo "ACTIVE_RUNNER_NAME=${{runner.name}}"
+            echo "ACTIVE_HOSTNAME=$HOSTNAME"
+            echo "ACTIVE_USER=$USER"
+          } >> "$GITHUB_ENV"
+
+      - name: "Checkout Source"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          clean: true
+          fetch-depth: 1
+
+      - name: "Check repo visibility"
+        id: visibility
+        uses: ./.github/actions/check-repo-visibility
+
+  bump-dotnet-sdk-version:
+    needs: [repo-info]
+    if: needs.repo-info.outputs.is_template == 'true'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: "Check Required Secrets"
+        shell: bash
+        run: |
+          if [ -z "${SOURCE_PUSH_TOKEN}" ]; then
+            echo "::error::SOURCE_PUSH_TOKEN is required but not set"
+            exit 1
+          fi
+        env:
+          SOURCE_PUSH_TOKEN: ${{secrets.SOURCE_PUSH_TOKEN}}
+
+      - name: "Initialise Workspace"
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: sudo chown -R "$USER:$USER" "$GITHUB_WORKSPACE"
+
+      - name: "Set Active Environment"
+        shell: bash
+        run: |
+          {
+            echo "ACTIVE_RUNNER_NAME=${{runner.name}}"
+            echo "ACTIVE_HOSTNAME=$HOSTNAME"
+            echo "ACTIVE_USER=$USER"
+          } >> "$GITHUB_ENV"
+
+      - name: "Checkout Source"
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          clean: true
+          fetch-depth: 0
+          token: "${{secrets.SOURCE_PUSH_TOKEN}}"
+          persist-credentials: true
+
+      - name: "Install dotnet"
+        if: runner.environment == 'self-hosted'
+        uses: ./.github/actions/dotnet-install
+        with:
+          github-token: "${{secrets.SOURCE_PUSH_TOKEN}}"
+          nuget-public-restore-feed-cache: "${{vars.NUGET_BAGET_CACHE}}"
+          nuget-public-restore-feed: "${{vars.NUGET_PUBLIC_RESTORE_FEED || 'https://api.nuget.org/v3/index.json'}}"
+          nuget-additional-restore-feed-release-cache: "${{vars.RELEASE_BAGET_CACHE}}"
+          nuget-additional-restore-feed-prerelease-cache: ""
+          nuget-additional-restore-feed-release: "${{vars.NUGET_ADDITIONAL_RESTORE_FEED_RELEASE}}"
+          nuget-additional-restore-feed-prerelease: ""
+
+      - name: "Install dotnet"
+        if: runner.environment != 'self-hosted'
+        uses: ./.github/actions/dotnet-install
+        with:
+          github-token: "${{secrets.SOURCE_PUSH_TOKEN}}"
+          nuget-public-restore-feed-cache: ""
+          nuget-public-restore-feed: "${{vars.NUGET_PUBLIC_RESTORE_FEED || 'https://api.nuget.org/v3/index.json'}}"
+          nuget-additional-restore-feed-release-cache: ""
+          nuget-additional-restore-feed-prerelease-cache: ""
+          nuget-additional-restore-feed-release: "${{vars.NUGET_ADDITIONAL_RESTORE_FEED_RELEASE}}"
+          nuget-additional-restore-feed-prerelease: "${{vars.NUGET_ADDITIONAL_RESTORE_FEED_PRERELEASE}}"
+
+      - name: "Get latest available dotnet version"
+        id: latest-dotnet-version
+        shell: bash
+        run: |
+          LATEST=$(curl \
+            --max-time 120 \
+            --retry 5 \
+            --retry-delay 0 \
+            --retry-max-time 600 \
+            -sS \
+            -L \
+            -f \
+            https://dotnetcli.blob.core.windows.net/dotnet/release-metadata/releases-index.json |
+            jq -re '
+              ."releases-index"
+              | map(select(."support-phase" == "active"))
+              | sort_by(."channel-version" | split(".") | map(tonumber))
+              | last
+              | ."latest-sdk"
+            ')
+          if [[ -z "$LATEST" || "$LATEST" == "null" ]]; then
+            echo "::error::Failed to determine latest active .NET SDK version from releases-index.json"
+            exit 1
+          fi
+          CURRENT_VER=$(jq -r '.sdk.version' src/global.json)
+          echo "Latest available SDK: $LATEST (current: $CURRENT_VER)"
+          {
+            echo "LATEST_RELEASE_VERSION=$LATEST"
+            echo "CURRENT_VERSION=$CURRENT_VER"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: "Check if Latest is newer than the current defined"
+        id: upgrade_check
+        shell: bash
+        run: |
+          CURRENT_VER="${{steps.latest-dotnet-version.outputs.CURRENT_VERSION}}"
+          LATEST_RELEASE_VER="${{steps.latest-dotnet-version.outputs.LATEST_RELEASE_VERSION}}"
+          echo "Current: $CURRENT_VER, Latest: $LATEST_RELEASE_VER"
+          HIGHEST=$(printf '%s\n' "$CURRENT_VER" "$LATEST_RELEASE_VER" | sort -V | tail -1)
+          if [[ "$CURRENT_VER" != "$LATEST_RELEASE_VER" && "$HIGHEST" == "$LATEST_RELEASE_VER" ]]; then
+            echo "NEW_VERSION=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "NEW_VERSION=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: "Update global.json"
+        if: steps.upgrade_check.outputs.NEW_VERSION == 'true'
+        shell: bash
+        run: |
+          VERSION="${{steps.latest-dotnet-version.outputs.LATEST_RELEASE_VERSION}}"
+          jq --arg ver "$VERSION" '.sdk.version = $ver' src/global.json > src/global.json.tmp && mv src/global.json.tmp src/global.json
+
+      - name: "Commit changes to new branch"
+        if: steps.upgrade_check.outputs.NEW_VERSION == 'true'
+        uses: stefanzweifel/git-auto-commit-action@d0b01107b5db882071f96de5dd4b54961ea93f4c # v7.2.1
+        with:
+          commit_message: "SDK - Update DotNet SDK to ${{steps.latest-dotnet-version.outputs.LATEST_RELEASE_VERSION}}"
+          branch: "depends/dotnet/${{steps.latest-dotnet-version.outputs.LATEST_RELEASE_VERSION}}"
+          file_pattern: src/global.json
+          commit_user_name: "fun-version[bot]"
+          commit_user_email: "credfeto@users.noreply.github.com"
+          commit_author: "fun-version[bot] <credfeto@users.noreply.github.com>"
+          skip_dirty_check: false
+          create_branch: true

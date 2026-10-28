@@ -1,0 +1,60 @@
+--- # Configure NuGet and NPM cache env vars
+# Maintain in repo: funfair-server-template
+name: "Setup Build Cache"
+description: "Configures nuget/npm cache env vars"
+
+inputs:
+  use-nuget-cache:
+    description: "Whether to use nuget cache (true/false, or empty to disable)"
+    required: false
+    default: ""
+  nuget-baget-cache:
+    description: "Nuget BaGet cache URL"
+    required: false
+    default: ""
+  prerelease-baget-cache:
+    description: "Pre-release BaGet cache URL"
+    required: false
+    default: ""
+  release-baget-cache:
+    description: "Release BaGet cache URL"
+    required: false
+    default: ""
+  npm-cache:
+    description: "NPM cache registry URL"
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: "Determine cache status"
+      id: cache-status
+      shell: bash
+      env:
+        USE_NUGET_CACHE_INPUT: "${{inputs.use-nuget-cache}}"
+      run: |
+        use_cache="$USE_NUGET_CACHE_INPUT"
+        if [[ -z "$use_cache" || "${{runner.environment}}" != "self-hosted" ]]; then
+          use_cache="false"
+        fi
+        echo "USE_NUGET_CACHE=${use_cache}" >> "$GITHUB_ENV"
+        echo "use-nuget-cache=${use_cache}" >> "$GITHUB_OUTPUT"
+
+    - name: "Enable Local nuget/npm feeds if caching"
+      if: steps.cache-status.outputs.use-nuget-cache == 'true'
+      shell: bash
+      env:
+        NUGET_BAGET_CACHE: "${{inputs.nuget-baget-cache}}"
+        PRERELEASE_BAGET_CACHE: "${{inputs.prerelease-baget-cache}}"
+        RELEASE_BAGET_CACHE: "${{inputs.release-baget-cache}}"
+        NPM_CACHE: "${{inputs.npm-cache}}"
+      run: |
+        {
+          echo "NUGET_BAGET_CACHE=${NUGET_BAGET_CACHE}"
+          echo "PRERELEASE_BAGET_CACHE=${PRERELEASE_BAGET_CACHE}"
+          echo "RELEASE_BAGET_CACHE=${RELEASE_BAGET_CACHE}"
+          if [[ -n "${NPM_CACHE}" ]]; then
+            echo "NPM_REGISTRY=${NPM_CACHE}"
+          fi
+        }>> "$GITHUB_ENV"

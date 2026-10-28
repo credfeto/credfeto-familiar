@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<Project>
+    <!-- Sarif -->
+    <Target Name="_SetSarifErrorLog" BeforeTargets="CoreCompile" Condition="$(EnableSarif)=='True' And !$(MSBuildProjectName.EndsWith('.Tests'))">
+        <PropertyGroup>
+            <ErrorLog>$([MSBuild]::NormalizePath('$(SolutionDir)', '..', 'results', '$(MSBuildProjectName).$(TargetFramework).sarif')),version=2.1</ErrorLog>
+        </PropertyGroup>
+    </Target>
+
+    <!-- Code analysis analyzer - report timings -->
+    <PropertyGroup Condition="$(EnableSarif)=='True' And !$(MSBuildProjectName.EndsWith('.Tests'))">
+        <ReportAnalyzer>true</ReportAnalyzer>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <IsPacking>False</IsPacking>
+        <IsPacking Condition="$(IsPackable) == 'true' OR $(IsPublishable) == 'true'">True</IsPacking>
+    </PropertyGroup>
+
+    <!-- Package Icon -->
+    <PropertyGroup>
+        <_PackageIconFile>$([System.IO.Path]::Combine('$(SolutionDir)', 'packageicon.png'))</_PackageIconFile>
+    </PropertyGroup>
+    <PropertyGroup Condition="$(IsPacking) == 'True' AND Exists('$(_PackageIconFile)')">
+        <PackageIcon>packageicon.png</PackageIcon>
+        <PackageIconUrl>https://avatars.githubusercontent.com/u/29401895</PackageIconUrl>
+    </PropertyGroup>
+    <ItemGroup Condition="$(IsPacking) == 'True' AND Exists('$(_PackageIconFile)')">
+        <None Include="$(_PackageIconFile)" Pack="true" PackagePath="\" />
+    </ItemGroup>
+
+    <!-- License -->
+    <PropertyGroup>
+        <_LicenseFile>$([MSBuild]::NormalizePath('$(SolutionDir)', '..', 'LICENSE'))</_LicenseFile>
+    </PropertyGroup>
+    <PropertyGroup Condition="$(IsPacking) == 'True' AND Exists('$(_LicenseFile)')">
+        <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    </PropertyGroup>
+    <ItemGroup Condition="$(IsPacking) == 'True' AND Exists('$(_LicenseFile)')">
+        <None Include="$(_LicenseFile)" Pack="true" PackagePath="\" />
+    </ItemGroup>
+
+    <!-- Readme -->
+    <PropertyGroup>
+        <_ReadmeFile>$([MSBuild]::NormalizePath('$(SolutionDir)', '..', 'README.md'))</_ReadmeFile>
+    </PropertyGroup>
+    <PropertyGroup Condition="$(IsPacking) == 'True' AND Exists('$(_ReadmeFile)')">
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+    </PropertyGroup>
+    <ItemGroup Condition="$(IsPacking) == 'True' AND Exists('$(_ReadmeFile)')">
+        <None Include="$(_ReadmeFile)" Pack="true" PackagePath="\" />
+    </ItemGroup>
+
+    <!-- Disable Nuget errors on publishing -->
+    <PropertyGroup Condition="$(IsPublishing) == 'True'">
+        <WarningsNotAsErrors>NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
+    </PropertyGroup>
+
+    <!-- Enable SBOM generation in production builds -->
+    <PropertyGroup Condition="$(IsPacking) == 'True' AND $(IsProduction) == 'True'">
+        <EnableSbom>true</EnableSbom>
+    </PropertyGroup>
+</Project>

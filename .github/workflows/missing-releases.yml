@@ -1,0 +1,96 @@
+--- # Create a new branch for anything that has a changelog entry, but no branch
+# Maintain in repo: funfair-server-template
+name: "Repo: Create missing releases"
+on:
+  push:
+    branches:
+      - "main"
+    paths:
+      - ".github/workflows/missing-releases.yml"
+      - "CHANGELOG.md"
+  schedule:
+    - cron: "0 1 * * *"
+
+concurrency:
+  group: "${{github.workflow}}-${{github.ref}}"
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  missing-releases:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: "Check Required Secrets"
+        shell: bash
+        run: |
+          if [ -z "${{secrets.SOURCE_PUSH_TOKEN}}" ]; then
+            echo "::error::SOURCE_PUSH_TOKEN is required but not set"
+            exit 1
+          fi
+
+      - name: "Initialise Workspace"
+        if: runner.environment == 'self-hosted'
+        shell: bash
+        run: sudo chown -R "$USER:$USER" "$GITHUB_WORKSPACE"
+
+      - name: "Set Active Environment"
+        shell: bash
+        run: |
+          {
+          echo "ACTIVE_RUNNER_NAME=${{runner.name}}"
+          echo "ACTIVE_HOSTNAME=$HOSTNAME"
+          echo "ACTIVE_USER=$USER"
+          } >> "$GITHUB_ENV"
+
+      - name: "Check for missing releases"
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          github-token: "${{secrets.SOURCE_PUSH_TOKEN}}"
+          script: |
+            const releaseBranches = await github.paginate(github.rest.git.listMatchingRefs, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'heads/release/',
+              per_page: 100,
+            });
+            const existingReleases = new Set(
+              releaseBranches.map(b => b.ref.replace('refs/heads/release/', ''))
+            );
+            const REGEX_CHANGELOG = /Changelog\sfor\s(\d+\.\d+\.\d+)$/;
+            for await (const { data: commits } of github.paginate.iterator(github.rest.repos.listCommits, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: 'main',
+              per_page: 100,
+            })) {
+              let foundExisting = false;
+              for (const commit of commits) {
+                const subject = commit.commit.message.split('\n')[0];
+                const match = subject.match(REGEX_CHANGELOG);
+                if (!match) continue;
+                const version = match[1];
+                if (existingReleases.has(version)) {
+                  core.info(`* Found Release ${version} at ${commit.sha}`);
+                  foundExisting = true;
+                  continue;
+                }
+                core.info(`- Missing Release ${version} at ${commit.sha} - creating branch`);
+                try {
+                  await github.rest.git.createRef({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    ref: `refs/heads/release/${version}`,
+                    sha: commit.sha,
+                  });
+                  core.info(`+++ Created branch release/${version}`);
+                } catch (e) {
+                  if (e.status !== 422) throw e;
+                  core.info(`* Branch release/${version} already exists - skipping`);
+                }
+                existingReleases.add(version);
+              }
+              if (foundExisting) break;
+            }

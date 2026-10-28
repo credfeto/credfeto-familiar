@@ -1,0 +1,49 @@
+--- # Software Bill of Materials (SBOM) Action
+# Maintain in repo: funfair-server-template
+name: "Run Software Bill of Materials"
+description: "Software Bill of materials"
+inputs:
+  repo-visibility:
+    description: "Visibility of the repo (public or private)"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Create SBOM"
+      uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+      with:
+        path: "${{github.workspace}}"
+        config: "${{github.workspace}}/.github/linters/syft.yml"
+        format: "spdx-json"
+        output-file: "${{github.event.repository.name}}-sbom.spdx.json"
+        artifact-name: "${{github.event.repository.name}}-sbom"
+        # Not a `uses:` pin, so dependabot's github-actions ecosystem watch cannot see it - bump manually.
+        syft-version: "v1.51.1"
+        upload-artifact: true
+        upload-release-assets: false
+
+    - name: "Determine SBOM scan output"
+      id: scan-config
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      env:
+        REPO_VISIBILITY: "${{inputs.repo-visibility}}"
+        WORKSPACE: "${{github.workspace}}"
+        REPO_NAME: "${{github.event.repository.name}}"
+      with:
+        script: |
+          const isPublic = process.env.REPO_VISIBILITY === 'public';
+
+          core.setOutput('format', isPublic ? 'sarif' : 'table');
+          core.setOutput('output', isPublic ? `${process.env.WORKSPACE}/results/${process.env.REPO_NAME}-sbom.sarif` : '');
+
+    - name: "Scan SBOM"
+      uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+      with:
+        scan-type: "sbom"
+        scan-ref: "${{github.event.repository.name}}-sbom.spdx.json"
+        format: "${{steps.scan-config.outputs.format}}"
+        output: "${{steps.scan-config.outputs.output}}"
+        ignore-unfixed: true
+        severity: "HIGH,CRITICAL"
+        cache-dir: "${{github.workspace}}/.trivy-cache"
