@@ -11,6 +11,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 ## [Unreleased]
 ### Security
 ### Added
+- Familiar install files: docker-compose.yaml, the update and reset scripts, and the hourly familiar-update systemd service and timer, and a .env.example listing the variables docker-compose.yaml reads
 ### Fixed
 ### Changed
 - SDK - Updated DotNet SDK to 10.0.403
