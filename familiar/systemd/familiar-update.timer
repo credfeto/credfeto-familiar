@@ -1,8 +1,8 @@
 [Unit]
-Description=Run familiar update hourly
+Description=Run familiar update hourly at half past
 
 [Timer]
-OnCalendar=hourly
+OnCalendar=*:30
 RandomizedDelaySec=10min
 Persistent=true
 Unit=familiar-update.service

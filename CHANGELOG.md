@@ -11,9 +11,11 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 ## [Unreleased]
 ### Security
 ### Added
+- install script: copies the familiar-update service and timer into /etc/systemd/system, reloads systemd, and enables and restarts the timer
 - Familiar install files: docker-compose.yaml, the update and reset scripts, and the hourly familiar-update systemd service and timer, and a .env.example listing the variables docker-compose.yaml reads
 ### Fixed
 ### Changed
+- familiar-update timer runs at half past the hour (plus up to 10 minutes of random delay) instead of on the hour, so it no longer clashes with hourly jobs that run on the hour
 - SDK - Updated DotNet SDK to 10.0.403
 ### Deprecated
 ### Removed

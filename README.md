@@ -17,7 +17,7 @@ Canonical source for shared AI instruction files, GitHub workflow templates, and
 - [`docker-compose.yaml`](familiar/docker-compose.yaml): runs the familiar broker, which starts the agent and MCP-server containers itself.
 - [`update`](familiar/update): pulls the images, runs the broker's deploy check, then brings the stack up.
 - [`reset`](familiar/reset): pulls the images, then stops, removes and recreates the containers.
-- [`systemd/familiar-update.service`](familiar/systemd/familiar-update.service) and [`systemd/familiar-update.timer`](familiar/systemd/familiar-update.timer): run `update` hourly. Install them in `/etc/systemd/system/`, then `systemctl daemon-reload` and `systemctl enable --now familiar-update.timer`.
+- [`systemd/familiar-update.service`](familiar/systemd/familiar-update.service) and [`systemd/familiar-update.timer`](familiar/systemd/familiar-update.timer): run `update` hourly, at half past the hour. Install them by running `./install` from a clone of this repository (it uses `sudo`): it copies both units into `/etc/systemd/system/`, reloads systemd, and enables and restarts the timer.
 
 ## Changelog
 
