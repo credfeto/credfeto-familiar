@@ -11,6 +11,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 ## [Unreleased]
 ### Security
 ### Added
+- install script: copies the familiar-update service and timer into /etc/systemd/system, reloads systemd, and enables and restarts the timer
 - Familiar install files: docker-compose.yaml, the update and reset scripts, and the hourly familiar-update systemd service and timer, and a .env.example listing the variables docker-compose.yaml reads
 ### Fixed
 ### Changed

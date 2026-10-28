@@ -1,0 +1,12 @@
+#! /bin/sh
+# Installs the familiar-update systemd service and timer, then enables and
+# (re)starts the timer. Run from a clone of this repository: ./install
+set -eu
+
+BASEDIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+sudo cp "$BASEDIR/familiar/systemd/familiar-update.service" /etc/systemd/system/
+sudo cp "$BASEDIR/familiar/systemd/familiar-update.timer" /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable familiar-update.timer
+sudo systemctl restart familiar-update.timer
