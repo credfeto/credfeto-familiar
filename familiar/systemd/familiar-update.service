@@ -1,0 +1,10 @@
+[Unit]
+Description=Run familiar update
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=markr
+ExecStart=/home/markr/familiar/update
+WorkingDirectory=/home/markr/familiar

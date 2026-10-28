@@ -9,6 +9,15 @@ Canonical source for shared AI instruction files, GitHub workflow templates, and
 | main    | [![Build: Pre-Release][pre-release-img]][pre-release] |
 | release | [![Build: Release][release-img]][release]             |
 
+## Familiar install
+
+[`familiar/`](familiar) holds the files for a familiar install. Copy them into the install directory (`~/familiar`) next to a `.env`, which is not kept in this repository:
+
+- [`docker-compose.yaml`](familiar/docker-compose.yaml): runs the familiar broker, which starts the agent and MCP-server containers itself.
+- [`update`](familiar/update): pulls the images, runs the broker's deploy check, then brings the stack up.
+- [`reset`](familiar/reset): pulls the images, then stops, removes and recreates the containers.
+- [`systemd/familiar-update.service`](familiar/systemd/familiar-update.service) and [`systemd/familiar-update.timer`](familiar/systemd/familiar-update.timer): run `update` hourly. Install them in `/etc/systemd/system/`, then `systemctl daemon-reload` and `systemctl enable --now familiar-update.timer`.
+
 ## Changelog
 
 View [changelog][changelog].

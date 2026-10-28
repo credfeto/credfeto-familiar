@@ -1,0 +1,51 @@
+# A familiar install: this file and a .env (see .env.example) in a directory of
+# their own. `python -m broker.init` writes both (see the README); then:
+#
+#     docker compose pull && docker compose up -d
+#
+# Upgrade by changing FAMILIAR_RELEASE in .env and running the same command.
+# Only the broker runs from this file: it creates the agent and MCP-server
+# containers itself. Why it's shaped like this: SPEC.md §13.
+services:
+  broker:
+    image: "${FAMILIAR_IMAGE_REPO:-ghcr.io/funfair-tech/familiar}:${FAMILIAR_RELEASE:?set FAMILIAR_RELEASE in .env (e.g. 1.0 or latest)}"
+    container_name: ${FAMILIAR_INSTANCE:+${FAMILIAR_INSTANCE}-}familiar-broker
+    command: python -m broker
+    # Lets running turns finish before the broker is stopped.
+    stop_grace_period: 180s
+    volumes:
+      # Databases and caches (FAMILIAR_DATA, default: a named volume).
+      - ${FAMILIAR_DATA:-familiar-data}:/data
+      # Encrypted snapshots from scripts/backup.py (FAMILIAR_BACKUPS).
+      - ${FAMILIAR_BACKUPS:-familiar-backups}:/backups
+      # The broker starts and stops agent containers.
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      # The admin UI (FAMILIAR_ADMIN_BIND, FAMILIAR_ADMIN_PORT).
+      - "${FAMILIAR_ADMIN_BIND:-0.0.0.0}:${FAMILIAR_ADMIN_PORT:-8081}:8081"
+    environment:
+      - FAMILIAR_INSTANCE
+      - FAMILIAR_BACKUP_KEY
+      - FAMILIAR_BACKUP_KEEP
+    # The docker socket's group, so the broker (uid 1000) can use it.
+    group_add:
+      - "${DOCKER_GID:?set DOCKER_GID in .env: stat -c %g /var/run/docker.sock}"
+    networks:
+      - familiar-net      # broker <-> agents
+      - familiar-mcp-net  # broker <-> MCP-server containers
+    restart: unless-stopped
+
+  # Never runs (scale: 0): listed so `docker compose pull` fetches the image the
+  # broker starts MCP servers from.
+  mcp-host:
+    image: "${FAMILIAR_IMAGE_REPO:-ghcr.io/funfair-tech/familiar}-mcp-host:${FAMILIAR_RELEASE:?set FAMILIAR_RELEASE in .env}"
+    scale: 0
+    network_mode: none
+
+networks:
+  familiar-net:
+  familiar-mcp-net:
+
+volumes:
+  familiar-data:
+  familiar-backups:
