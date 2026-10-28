@@ -1,2 +1,4 @@
 #! /bin/sh
-docker compose pull && docker compose exec -T broker python -m broker.deploycheck && docker compose up -d
+docker compose pull \
+  && docker compose exec -T broker python -m broker.deploycheck \
+  && docker compose up -d
