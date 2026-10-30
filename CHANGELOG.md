@@ -13,6 +13,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 ### Added
 ### Fixed
 ### Changed
+- update: skip deploycheck and `docker compose up -d` when the pull brings no new image since the last successful deploy
 ### Deprecated
 ### Removed
 ### Deployment Changes

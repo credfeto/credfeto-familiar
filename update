@@ -1,4 +1,25 @@
 #! /bin/sh
-docker compose pull \
-  && docker compose exec -T broker python -m broker.deploycheck \
-  && docker compose up -d
+# Pull the images, then redeploy only if one of them changed since the last
+# successful deploy (or the broker isn't running). A pull that brings nothing
+# new exits 0 without running deploycheck or touching the containers.
+set -e
+cd "$(dirname "$0")"
+STAMP="${XDG_STATE_HOME:-$HOME/.local/state}/familiar/deployed-images"
+
+docker compose pull
+
+current=$(for image in $(docker compose config --images | sort); do
+  printf '%s %s\n' "$image" "$(docker image inspect -f '{{.Id}}' "$image")"
+done)
+
+if [ -f "$STAMP" ] && [ "$current" = "$(cat "$STAMP")" ] \
+  && [ -n "$(docker compose ps -q --status running broker)" ]; then
+  echo "images unchanged since last deploy - nothing to do"
+  exit 0
+fi
+
+docker compose exec -T broker python -m broker.deploycheck
+docker compose up -d
+
+mkdir -p "$(dirname "$STAMP")"
+printf '%s\n' "$current" > "$STAMP"
