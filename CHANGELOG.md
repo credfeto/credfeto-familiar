@@ -13,8 +13,6 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 ### Added
 ### Fixed
 ### Changed
-- update: skip deploycheck and `docker compose up -d` when the pull brings no new image since the last successful deploy
-- SDK - Updated DotNet SDK to 11.0.100-rc.3.26522.148
 ### Deprecated
 ### Removed
 ### Deployment Changes
@@ -22,6 +20,11 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 <!--
 Releases that have at least been deployed to staging, BUT NOT necessarily released to live.  Changes should be moved from [Unreleased] into here as they are merged into the appropriate release branch
 -->
+
+## [0.0.2] - 2026-11-04
+### Changed
+- update: skip deploycheck and `docker compose up -d` when the pull brings no new image since the last successful deploy
+- SDK - Updated DotNet SDK to 11.0.100-rc.3.26522.148
 
 ## [0.0.1] - 2026-10-28
 ### Added
