@@ -6,6 +6,7 @@
 # Upgrade by changing FAMILIAR_RELEASE in .env and running the same command.
 # Only the broker runs from this file: it creates the agent and MCP-server
 # containers itself. Why it's shaped like this: SPEC.md §13.
+---
 services:
   broker:
     image: "${FAMILIAR_IMAGE_REPO:-ghcr.io/funfair-tech/familiar}:${FAMILIAR_RELEASE:?set FAMILIAR_RELEASE in .env (e.g. 1.0 or latest)}"
