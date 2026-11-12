@@ -15,7 +15,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 ### Changed
 ### Deprecated
 ### Removed
-- TBD - to be finalized after review
+- unused .NET scaffolding: removed src/global.json, Credfeto.Template.slnx and its DotSettings, Directory.Build.props, Packaging.props, UnitTests.props, the rule-settings files and src/.gitignore; .env.example keys are now in the same order docker-compose.yaml reads them, and docker-compose.yaml starts with a --- document marker
 ### Deployment Changes
 
 <!--
