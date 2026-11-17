@@ -1,8 +1,8 @@
 #!/bin/sh
-# Test double for docker, used by test/update.bats and test/reset.bats. It
-# never calls the real docker: every call is logged to $STUB_DIR/docker-calls,
-# and each answer is chosen by the files a test writes under $STUB_DIR.
-# Anything unexpected fails loudly.
+# Test double for docker, used by test/update.bats, test/reset.bats and
+# test/busy.bats. It never calls the real docker: every call is logged to
+# $STUB_DIR/docker-calls, and each answer is chosen by the files a test
+# writes under $STUB_DIR. Anything unexpected fails loudly.
 set -eu
 
 printf '%s\n' "$*" >>"$STUB_DIR/docker-calls"
