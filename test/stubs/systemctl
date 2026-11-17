@@ -1,0 +1,9 @@
+#!/bin/sh
+# Test double for systemctl, used by test/install.bats so the real systemctl
+# is never on PATH ahead of it. install only runs systemctl through sudo, and
+# the sudo stub never runs anything, so any direct call is a mistake and fails
+# loudly.
+set -eu
+
+printf 'stub systemctl: unexpected call: %s\n' "$*" >&2
+exit 99
