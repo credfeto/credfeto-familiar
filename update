@@ -10,7 +10,9 @@
 # tried up to DEPLOYCHECK_ATTEMPTS times, DEPLOYCHECK_DELAY seconds apart,
 # while it answers busy or inconclusive, and the script fails if it never
 # reports safe. An inconclusive answer re-checks the broker, and one that has
-# stopped since is brought straight up like one that was never running.
+# stopped since is brought straight up like one that was never running. Each
+# deploycheck is limited to DEPLOYCHECK_TIMEOUT seconds, and one that times out
+# counts as inconclusive.
 set -eu
 
 die() {
@@ -41,14 +43,23 @@ info() {
 DEPLOYCHECK_ATTEMPTS=20
 # Overridable only so tests do not have to wait between attempts.
 DEPLOYCHECK_DELAY="${FAMILIAR_DEPLOYCHECK_DELAY:-5}"
+# A wedged broker would otherwise hang deploycheck, and with it the oneshot
+# update unit, for ever. Overridable only so tests can check the validation.
+DEPLOYCHECK_TIMEOUT="${FAMILIAR_DEPLOYCHECK_TIMEOUT:-30}"
 
 DEPLOYCHECK_SAFE=0
 DEPLOYCHECK_UNKNOWN=1
 DEPLOYCHECK_BUSY=2
+DEPLOYCHECK_TIMED_OUT=124
 
 case "$DEPLOYCHECK_DELAY" in
     *[!0-9]*) die "FAMILIAR_DEPLOYCHECK_DELAY must be a whole number of seconds, got '$DEPLOYCHECK_DELAY'" ;;
 esac
+case "$DEPLOYCHECK_TIMEOUT" in
+    *[!0-9]*) die "FAMILIAR_DEPLOYCHECK_TIMEOUT must be a whole number of seconds, got '$DEPLOYCHECK_TIMEOUT'" ;;
+esac
+# timeout 0 would disable the limit rather than enforce one.
+[ "$DEPLOYCHECK_TIMEOUT" -gt 0 ] || die "FAMILIAR_DEPLOYCHECK_TIMEOUT must be greater than zero, got '$DEPLOYCHECK_TIMEOUT'"
 
 STAMP="${XDG_STATE_HOME:-$HOME/.local/state}/familiar/deployed-images"
 
@@ -56,6 +67,7 @@ script_dir=$(dirname "$0") || die "Could not work out the script directory from 
 cd "$script_dir" || die "Could not change to the script directory '$script_dir'"
 
 command -v docker >/dev/null 2>&1 || die "docker is not installed or not on PATH"
+command -v timeout >/dev/null 2>&1 || die "timeout is not installed or not on PATH (it is part of coreutils)"
 docker compose version >/dev/null 2>&1 || die "docker compose is not available (docker compose version failed)"
 docker info >/dev/null 2>&1 || die "The docker daemon is not reachable (docker info failed)"
 [ -f docker-compose.yaml ] || die "docker-compose.yaml not found in $script_dir"
@@ -99,7 +111,7 @@ if broker_is_running; then
     while :; do
         info "Checking the broker is safe to redeploy (attempt $attempt of $DEPLOYCHECK_ATTEMPTS)..."
         result=0
-        docker compose exec -T broker python -m broker.deploycheck || result=$?
+        timeout "$DEPLOYCHECK_TIMEOUT" docker compose exec -T broker python -m broker.deploycheck || result=$?
 
         case "$result" in
             "$DEPLOYCHECK_SAFE") break ;;
@@ -107,6 +119,7 @@ if broker_is_running; then
             # docker compose exec also exits 1 for its own failures; either
             # way the cause is in the stderr already passed through above.
             "$DEPLOYCHECK_UNKNOWN") reason="deploycheck could not tell whether tasks are running, or docker compose exec failed (exit 1)" ;;
+            "$DEPLOYCHECK_TIMED_OUT") reason="deploycheck timed out after ${DEPLOYCHECK_TIMEOUT}s" ;;
             *) reason="docker compose exec failed with exit code $result" ;;
         esac
 
