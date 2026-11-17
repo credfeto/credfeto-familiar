@@ -104,7 +104,9 @@ if broker_is_running; then
         case "$result" in
             "$DEPLOYCHECK_SAFE") break ;;
             "$DEPLOYCHECK_BUSY") reason="broker busy, tasks are running" ;;
-            "$DEPLOYCHECK_UNKNOWN") reason="deploycheck could not tell whether tasks are running" ;;
+            # docker compose exec also exits 1 for its own failures; either
+            # way the cause is in the stderr already passed through above.
+            "$DEPLOYCHECK_UNKNOWN") reason="deploycheck could not tell whether tasks are running, or docker compose exec failed (exit 1)" ;;
             *) reason="docker compose exec failed with exit code $result" ;;
         esac
 
