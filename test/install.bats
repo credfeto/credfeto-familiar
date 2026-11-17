@@ -3,18 +3,14 @@
 # test/stubs, never the real ones, with all state kept under the per-test
 # temporary directory.
 
+load test_helper
+
 setup() {
     deploy_dir="$BATS_TEST_TMPDIR/deploy"
+    setup_deploy_dir "$deploy_dir" install sudo
     mkdir -p "$deploy_dir/systemd"
-    cp "$BATS_TEST_DIRNAME/../install" "$deploy_dir/install"
     : >"$deploy_dir/systemd/familiar-update.service"
     : >"$deploy_dir/systemd/familiar-update.timer"
-
-    export STUB_DIR="$BATS_TEST_TMPDIR/stub"
-    mkdir -p "$STUB_DIR"
-    : >"$STUB_DIR/sudo-calls"
-
-    PATH="$BATS_TEST_DIRNAME/stubs:$PATH"
 
     # install runs sudo, so refuse to run any test unless the stubs shadow the
     # real sudo and systemctl.
@@ -36,19 +32,6 @@ require_stub() {
     fi
 }
 
-# Runs install with PATH set to only the given directory.
-run_install_with_path() {
-    saved_path="$PATH"
-    PATH="$1"
-    run "$deploy_dir/install"
-    PATH="$saved_path"
-}
-
-# Sets a stub sudo behaviour: the file's name selects it.
-stub() {
-    : >"$STUB_DIR/$1"
-}
-
 sudo_calls() {
     cat "$STUB_DIR/sudo-calls"
 }
@@ -64,7 +47,7 @@ calls_through() {
     no_sudo_dir="$BATS_TEST_TMPDIR/no-sudo"
     mkdir -p "$no_sudo_dir"
     ln -s "$(command -v dirname)" "$no_sudo_dir/dirname"
-    run_install_with_path "$no_sudo_dir"
+    run_with_path "$no_sudo_dir" "$deploy_dir/install"
     [ "$status" -eq 1 ]
     [[ "$output" == *"sudo is not installed or not on PATH"* ]]
     [ -z "$(sudo_calls)" ]
@@ -76,7 +59,7 @@ calls_through() {
     mkdir -p "$no_systemctl_dir"
     ln -s "$(command -v dirname)" "$no_systemctl_dir/dirname"
     ln -s "$BATS_TEST_DIRNAME/stubs/sudo" "$no_systemctl_dir/sudo"
-    run_install_with_path "$no_systemctl_dir"
+    run_with_path "$no_systemctl_dir" "$deploy_dir/install"
     [ "$status" -eq 1 ]
     [[ "$output" == *"systemctl is not installed or not on PATH"* ]]
     [ -z "$(sudo_calls)" ]
