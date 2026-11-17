@@ -232,7 +232,7 @@ calls() {
     stub deploycheck-results "125 0"
     run "$deploy_dir/update"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"docker compose exec failed with exit code 125"* ]]
+    [[ "$output" == *"docker compose exec (or timeout) failed with exit code 125"* ]]
     [ "$(calls deploycheck)" -eq 2 ]
 }
 

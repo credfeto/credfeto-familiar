@@ -130,7 +130,7 @@ if broker_is_running; then
             # way the cause is in the stderr already passed through above.
             "$DEPLOYCHECK_UNKNOWN") reason="deploycheck could not tell whether tasks are running, or docker compose exec failed (exit 1)" ;;
             "$DEPLOYCHECK_TIMED_OUT" | "$DEPLOYCHECK_KILLED") reason="deploycheck timed out after ${DEPLOYCHECK_TIMEOUT}s" ;;
-            *) reason="docker compose exec failed with exit code $result" ;;
+            *) reason="docker compose exec (or timeout) failed with exit code $result" ;;
         esac
 
         # A busy answer came from a running broker, so only an inconclusive

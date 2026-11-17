@@ -131,7 +131,7 @@ setup() {
     stub deploycheck-results 125
     run "$deploy_dir/busy"
     [ "$status" -eq 1 ]
-    [[ "$output" == *"docker compose exec failed with exit code 125"* ]]
+    [[ "$output" == *"docker compose exec (or timeout) failed with exit code 125"* ]]
     [ "$(docker_calls)" = "$ALL_CALLS" ]
 }
 
