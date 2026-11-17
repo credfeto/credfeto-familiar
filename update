@@ -87,7 +87,11 @@ info "Pulling images..."
 docker compose pull || die "docker compose pull failed"
 
 images=$(docker compose config --images) || die "Could not list the images (docker compose config --images failed)"
-sorted_images=$(printf '%s\n' "$images" | sort) || die "Could not sort the image list"
+# Sorted in the C locale so a systemd run and a manual run, which may have
+# different locales, order the same images the same way and the stamp still
+# matches. A stamp written before this used the caller's collation, so the
+# first run after the change may redeploy once.
+sorted_images=$(printf '%s\n' "$images" | LC_ALL=C sort) || die "Could not sort the image list"
 [ -n "$sorted_images" ] || die "docker compose config --images listed no images"
 
 current=""

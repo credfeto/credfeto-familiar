@@ -153,6 +153,19 @@ calls() {
     [ "$(calls 'compose up')" -eq 0 ]
 }
 
+@test "image order ignores the caller's locale: a C-ordered stamp still matches" {
+    # Only meaningful where a locale that collates case-insensitively exists.
+    [ "$(printf 'a\nB\n' | LC_ALL=en_US.UTF-8 sort | head -n 1)" = a ] || skip "en_US.UTF-8 collation is not available"
+    stub running
+    stub config-images $'a/img:1\nB/img:1'
+    printf 'B/img:1 sha256:B_img_1\na/img:1 sha256:a_img_1\n' >"$stamp"
+    LC_ALL=en_US.UTF-8 run "$deploy_dir/update"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Nothing to do"* ]]
+    [ "$(calls deploycheck)" -eq 0 ]
+    [ "$(calls 'compose up')" -eq 0 ]
+}
+
 @test "stamp unreadable dies" {
     [ "$(id -u)" -ne 0 ] || skip "root can read any file"
     stub running
