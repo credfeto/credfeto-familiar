@@ -48,6 +48,11 @@ DEPLOYCHECK_SAFE=0
 DEPLOYCHECK_UNKNOWN=1
 DEPLOYCHECK_BUSY=2
 DEPLOYCHECK_TIMED_OUT=124
+# What timeout exits with once it has had to SIGKILL a docker CLI that
+# ignored the SIGTERM.
+DEPLOYCHECK_KILLED=137
+# How long after the SIGTERM timeout waits before sending SIGKILL.
+DEPLOYCHECK_KILL_AFTER=5
 
 # A wedged broker would otherwise hang deploycheck, and with it the oneshot
 # update unit, for ever. Overridable only so tests can check the validation.
@@ -77,7 +82,12 @@ fi
 
 info "Checking whether the broker is busy..."
 result=0
-timeout "$DEPLOYCHECK_TIMEOUT" docker compose exec -T broker python -m broker.deploycheck || result=$?
+# timeout runs docker in a background process group, so stdin comes from
+# /dev/null: deploycheck reads none, and a docker CLI reading the terminal
+# from there would be stopped by SIGTTIN on a manual run. deploycheck caps
+# its own HTTP call at 5s, so the process in the container only outlives
+# this limit when the exec itself wedges.
+timeout -k "$DEPLOYCHECK_KILL_AFTER" "$DEPLOYCHECK_TIMEOUT" docker compose exec -T broker python -m broker.deploycheck </dev/null || result=$?
 
 case "$result" in
     "$DEPLOYCHECK_SAFE")
@@ -93,7 +103,7 @@ case "$result" in
         # the cause is in the stderr already passed through above.
         die "deploycheck could not tell whether tasks are running, or docker compose exec failed (exit 1)"
         ;;
-    "$DEPLOYCHECK_TIMED_OUT")
+    "$DEPLOYCHECK_TIMED_OUT" | "$DEPLOYCHECK_KILLED")
         die "deploycheck timed out after ${DEPLOYCHECK_TIMEOUT}s"
         ;;
     *)

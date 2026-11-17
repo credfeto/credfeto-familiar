@@ -248,6 +248,16 @@ calls() {
     [ "$(calls 'compose up')" -eq 1 ]
 }
 
+@test "deploycheck killed after the timeout (137) is retried like a timeout" {
+    stub running
+    stub deploycheck-results "137 0"
+    run "$deploy_dir/update"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"deploycheck timed out after 30s"* ]]
+    [ "$(calls deploycheck)" -eq 2 ]
+    [ "$(calls 'compose up')" -eq 1 ]
+}
+
 @test "deploycheck timed out for all 20 attempts dies" {
     stub running
     stub deploycheck-results 124

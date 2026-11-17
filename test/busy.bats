@@ -144,6 +144,15 @@ setup() {
     [ "$(docker_calls)" = "$ALL_CALLS" ]
 }
 
+@test "deploycheck killed after the timeout (137) exits 1 as a timeout" {
+    stub running
+    stub deploycheck-results "137 0"
+    run "$deploy_dir/busy"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"deploycheck timed out after 30s"* ]]
+    [ "$(docker_calls)" = "$ALL_CALLS" ]
+}
+
 @test "runs from its own directory when started elsewhere" {
     cd "$BATS_TEST_TMPDIR"
     run "$deploy_dir/busy"
