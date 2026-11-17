@@ -99,7 +99,7 @@ setup() {
     stub deploycheck-results "1 0"
     run "$deploy_dir/busy"
     [ "$status" -eq 1 ]
-    [[ "$output" == *"deploycheck could not tell whether tasks are running"* ]]
+    [[ "$output" == *"deploycheck could not tell whether tasks are running, or docker compose exec failed (exit 1)"* ]]
     [ "$(docker_calls)" = "$ALL_CALLS" ]
 }
 

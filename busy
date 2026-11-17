@@ -76,7 +76,9 @@ case "$result" in
         exit 2
         ;;
     "$DEPLOYCHECK_UNKNOWN")
-        die "deploycheck could not tell whether tasks are running"
+        # docker compose exec also exits 1 for its own failures; either way
+        # the cause is in the stderr already passed through above.
+        die "deploycheck could not tell whether tasks are running, or docker compose exec failed (exit 1)"
         ;;
     *)
         die "docker compose exec failed with exit code $result"

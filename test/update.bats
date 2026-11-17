@@ -191,7 +191,7 @@ calls() {
     run "$deploy_dir/update"
     [ "$status" -eq 0 ]
     [ "$(calls deploycheck)" -eq 3 ]
-    [[ "$output" == *"could not tell"* ]]
+    [[ "$output" == *"deploycheck could not tell whether tasks are running, or docker compose exec failed (exit 1)"* ]]
     [ "$(calls 'compose up')" -eq 1 ]
 }
 
@@ -201,7 +201,7 @@ calls() {
     run "$deploy_dir/update"
     [ "$status" -eq 1 ]
     [ "$(calls deploycheck)" -eq 20 ]
-    [[ "$output" == *"after 20 attempts: deploycheck could not tell"* ]]
+    [[ "$output" == *"after 20 attempts: deploycheck could not tell whether tasks are running, or docker compose exec failed (exit 1)"* ]]
 }
 
 @test "docker exec failure retried like unknown" {
