@@ -9,7 +9,8 @@
 # deploycheck must report it safe before the containers are replaced: it is
 # tried up to DEPLOYCHECK_ATTEMPTS times, DEPLOYCHECK_DELAY seconds apart,
 # while it answers busy or inconclusive, and the script fails if it never
-# reports safe.
+# reports safe. An inconclusive answer re-checks the broker, and one that has
+# stopped since is brought straight up like one that was never running.
 set -eu
 
 die() {
@@ -107,6 +108,13 @@ if broker_is_running; then
             *) reason="docker compose exec failed with exit code $result" ;;
         esac
 
+        # A busy answer came from a running broker, so only an inconclusive
+        # one can mean the broker has stopped since it was last checked.
+        if [ "$result" != "$DEPLOYCHECK_BUSY" ] && ! broker_is_running; then
+            info "Broker has stopped, so no tasks can be in flight; skipping the remaining deploychecks"
+            break
+        fi
+
         if [ "$attempt" -ge "$DEPLOYCHECK_ATTEMPTS" ]; then
             die "Broker still not safe to redeploy after $attempt attempts: $reason"
         fi
@@ -115,7 +123,9 @@ if broker_is_running; then
         sleep "$DEPLOYCHECK_DELAY"
         attempt=$((attempt + 1))
     done
-    success "Broker is safe to redeploy"
+    if [ "$result" = "$DEPLOYCHECK_SAFE" ]; then
+        success "Broker is safe to redeploy"
+    fi
 else
     info "Broker is not running, so no tasks can be in flight; skipping deploycheck"
 fi

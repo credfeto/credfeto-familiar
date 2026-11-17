@@ -213,6 +213,42 @@ calls() {
     [ "$(calls deploycheck)" -eq 2 ]
 }
 
+@test "exec fails, then the broker is reported stopped: up runs without retrying deploycheck" {
+    stub running
+    stub broker-stops-after-ps 1
+    stub deploycheck-results 125
+    run "$deploy_dir/update"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Broker has stopped"* ]]
+    [[ "$output" != *"Broker is safe to redeploy"* ]]
+    [ "$(calls deploycheck)" -eq 1 ]
+    [ "$(calls 'compose up')" -eq 1 ]
+    [ "$(cat "$stamp")" = "$OLD_STAMP" ]
+}
+
+@test "unknown on the last attempt, then the broker is reported stopped: up runs" {
+    stub running
+    stub broker-stops-after-ps 20
+    stub deploycheck-results 1
+    run "$deploy_dir/update"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Broker has stopped"* ]]
+    [ "$(calls deploycheck)" -eq 20 ]
+    [ "$(calls 'compose up')" -eq 1 ]
+}
+
+@test "busy does not re-check the broker; the next failed exec does" {
+    stub running
+    stub broker-stops-after-ps 1
+    stub deploycheck-results "2 125"
+    run "$deploy_dir/update"
+    [ "$status" -eq 0 ]
+    [ "$(calls deploycheck)" -eq 2 ]
+    # The first check, one re-check after the failed exec, and the check after up.
+    [ "$(calls 'compose ps')" -eq 3 ]
+    [ "$(calls 'compose up')" -eq 1 ]
+}
+
 @test "up -d fails" {
     stub up-fails
     run "$deploy_dir/update"
