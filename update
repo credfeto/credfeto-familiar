@@ -84,21 +84,16 @@ $image $image_id"
     fi
 done
 
-broker_running=no
 if broker_is_running; then
-    broker_running=yes
-fi
-
-if [ "$broker_running" = yes ] && [ -f "$STAMP" ]; then
-    previous=$(cat "$STAMP") || die "Could not read the deploy stamp '$STAMP'"
-    if [ "$current" = "$previous" ]; then
-        info "Images unchanged since the last deploy and the broker is running"
-        success "Nothing to do"
-        exit 0
+    if [ -f "$STAMP" ]; then
+        previous=$(cat "$STAMP") || die "Could not read the deploy stamp '$STAMP'"
+        if [ "$current" = "$previous" ]; then
+            info "Images unchanged since the last deploy and the broker is running"
+            success "Nothing to do"
+            exit 0
+        fi
     fi
-fi
 
-if [ "$broker_running" = yes ]; then
     attempt=1
     while :; do
         info "Checking the broker is safe to redeploy (attempt $attempt of $DEPLOYCHECK_ATTEMPTS)..."
