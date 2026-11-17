@@ -29,6 +29,11 @@ case "$*" in
     "compose config --images")
         if flag config-fails; then exit 3; fi
         if flag config-empty; then exit 0; fi
+        # config-images replaces the default image list, one image per line.
+        if flag config-images; then
+            cat "$STUB_DIR/config-images"
+            exit 0
+        fi
         printf 'zeta/img:1\nalpha/img:2\n'
         ;;
     "image inspect -f {{.Id}} "*)
