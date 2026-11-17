@@ -1,0 +1,21 @@
+#!/bin/sh
+# Test double for timeout, used wherever a script runs a command under it.
+# It never waits or enforces a limit: every call is logged to
+# $STUB_DIR/timeout-calls, then the -k <n> and <duration> options are dropped
+# and the command runs straight away, so the stub docker still answers.
+# Anything unexpected fails loudly.
+set -eu
+
+printf '%s\n' "$*" >>"$STUB_DIR/timeout-calls"
+
+if [ "$#" -ge 2 ] && [ "$1" = "-k" ]; then
+    shift 2
+fi
+
+if [ "$#" -lt 2 ]; then
+    printf 'stub timeout: expected a duration and a command, got: %s\n' "$*" >&2
+    exit 99
+fi
+shift
+
+exec "$@"
