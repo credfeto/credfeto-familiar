@@ -95,6 +95,10 @@ sorted_images=$(printf '%s\n' "$images" | LC_ALL=C sort) || die "Could not sort 
 [ -n "$sorted_images" ] || die "docker compose config --images listed no images"
 
 current=""
+# The list is split into words on purpose (image refs hold no whitespace), but
+# globbing is turned off so a ref holding *, ? or [ is never matched against
+# files in the script directory.
+set -f
 for image in $sorted_images; do
     image_id=$(docker image inspect -f '{{.Id}}' "$image") || die "Could not inspect image '$image'"
     [ -n "$image_id" ] || die "docker image inspect returned no id for image '$image'"
@@ -105,6 +109,7 @@ for image in $sorted_images; do
 $image $image_id"
     fi
 done
+set +f
 
 if broker_is_running; then
     if [ -f "$STAMP" ]; then

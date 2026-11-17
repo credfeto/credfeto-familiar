@@ -166,6 +166,17 @@ calls() {
     [ "$(calls 'compose up')" -eq 0 ]
 }
 
+@test "image refs are not globbed against files in the script directory" {
+    stub config-images 'repo/img:[ab]'
+    mkdir -p "$deploy_dir/repo"
+    : >"$deploy_dir/repo/img:a"
+    run "$deploy_dir/update"
+    [ "$status" -eq 0 ]
+    [ "$(grep -cxF 'image inspect -f {{.Id}} repo/img:[ab]' "$STUB_DIR/docker-calls")" -eq 1 ]
+    [ "$(grep -cF 'repo/img:a' "$STUB_DIR/docker-calls" || true)" -eq 0 ]
+    [ "$(cat "$stamp")" = 'repo/img:[ab] sha256:repo_img_[ab]' ]
+}
+
 @test "stamp unreadable dies" {
     [ "$(id -u)" -ne 0 ] || skip "root can read any file"
     stub running
