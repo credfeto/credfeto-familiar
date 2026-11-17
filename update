@@ -51,6 +51,11 @@ DEPLOYCHECK_SAFE=0
 DEPLOYCHECK_UNKNOWN=1
 DEPLOYCHECK_BUSY=2
 DEPLOYCHECK_TIMED_OUT=124
+# What timeout exits with once it has had to SIGKILL a docker CLI that
+# ignored the SIGTERM.
+DEPLOYCHECK_KILLED=137
+# How long after the SIGTERM timeout waits before sending SIGKILL.
+DEPLOYCHECK_KILL_AFTER=5
 
 case "$DEPLOYCHECK_DELAY" in
     *[!0-9]*) die "FAMILIAR_DEPLOYCHECK_DELAY must be a whole number of seconds, got '$DEPLOYCHECK_DELAY'" ;;
@@ -111,7 +116,12 @@ if broker_is_running; then
     while :; do
         info "Checking the broker is safe to redeploy (attempt $attempt of $DEPLOYCHECK_ATTEMPTS)..."
         result=0
-        timeout "$DEPLOYCHECK_TIMEOUT" docker compose exec -T broker python -m broker.deploycheck || result=$?
+        # timeout runs docker in a background process group, so stdin comes from
+        # /dev/null: deploycheck reads none, and a docker CLI reading the terminal
+        # from there would be stopped by SIGTTIN on a manual run. deploycheck caps
+        # its own HTTP call at 5s, so the process in the container only outlives
+        # this limit when the exec itself wedges.
+        timeout -k "$DEPLOYCHECK_KILL_AFTER" "$DEPLOYCHECK_TIMEOUT" docker compose exec -T broker python -m broker.deploycheck </dev/null || result=$?
 
         case "$result" in
             "$DEPLOYCHECK_SAFE") break ;;
@@ -119,7 +129,7 @@ if broker_is_running; then
             # docker compose exec also exits 1 for its own failures; either
             # way the cause is in the stderr already passed through above.
             "$DEPLOYCHECK_UNKNOWN") reason="deploycheck could not tell whether tasks are running, or docker compose exec failed (exit 1)" ;;
-            "$DEPLOYCHECK_TIMED_OUT") reason="deploycheck timed out after ${DEPLOYCHECK_TIMEOUT}s" ;;
+            "$DEPLOYCHECK_TIMED_OUT" | "$DEPLOYCHECK_KILLED") reason="deploycheck timed out after ${DEPLOYCHECK_TIMEOUT}s" ;;
             *) reason="docker compose exec failed with exit code $result" ;;
         esac
 
