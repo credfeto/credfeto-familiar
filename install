@@ -1,12 +1,57 @@
-#! /bin/sh
+#!/bin/sh
 # Installs the familiar-update systemd service and timer, then enables and
 # (re)starts the timer. Run from a clone of this repository: ./install
 set -eu
 
-BASEDIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+die() {
+    if [ -t 2 ]; then
+        printf '\n\033[31m✗\033[0m %s\n' "$*" >&2
+    else
+        printf '\n✗ %s\n' "$*" >&2
+    fi
+    exit 1
+}
 
-sudo cp "$BASEDIR/systemd/familiar-update.service" /etc/systemd/system/
-sudo cp "$BASEDIR/systemd/familiar-update.timer" /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable familiar-update.timer
-sudo systemctl restart familiar-update.timer
+success() {
+    if [ -t 1 ]; then
+        printf '\n\033[32m✓\033[0m %s\n' "$*"
+    else
+        printf '\n✓ %s\n' "$*"
+    fi
+}
+
+info() {
+    if [ -t 1 ]; then
+        printf '\n\033[32m→\033[0m %s\n' "$*"
+    else
+        printf '\n→ %s\n' "$*"
+    fi
+}
+
+BASEDIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd) || die "Could not work out the script directory from '$0'"
+
+UNIT_DIR="$BASEDIR/systemd"
+SERVICE_UNIT="$UNIT_DIR/familiar-update.service"
+TIMER_UNIT="$UNIT_DIR/familiar-update.timer"
+
+command -v sudo >/dev/null 2>&1 || die "sudo is not installed or not on PATH"
+command -v systemctl >/dev/null 2>&1 || die "systemctl is not installed or not on PATH"
+[ -f "$SERVICE_UNIT" ] || die "familiar-update.service not found in $UNIT_DIR"
+[ -f "$TIMER_UNIT" ] || die "familiar-update.timer not found in $UNIT_DIR"
+
+info "Installing familiar-update.service..."
+sudo cp "$SERVICE_UNIT" /etc/systemd/system/ || die "Could not copy familiar-update.service to /etc/systemd/system/"
+
+info "Installing familiar-update.timer..."
+sudo cp "$TIMER_UNIT" /etc/systemd/system/ || die "Could not copy familiar-update.timer to /etc/systemd/system/"
+
+info "Reloading systemd..."
+sudo systemctl daemon-reload || die "systemctl daemon-reload failed"
+
+info "Enabling familiar-update.timer..."
+sudo systemctl enable familiar-update.timer || die "systemctl enable familiar-update.timer failed"
+
+info "Restarting familiar-update.timer..."
+sudo systemctl restart familiar-update.timer || die "systemctl restart familiar-update.timer failed"
+
+success "familiar-update.timer installed and running"
