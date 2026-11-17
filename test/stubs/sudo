@@ -1,0 +1,34 @@
+#!/bin/sh
+# Test double for sudo, used by test/install.bats. It never runs the command
+# it is given: every call is logged to $STUB_DIR/sudo-calls, and each answer
+# is chosen by the files a test writes under $STUB_DIR. Anything unexpected
+# fails loudly.
+set -eu
+
+printf '%s\n' "$*" >>"$STUB_DIR/sudo-calls"
+
+flag() {
+    [ -f "$STUB_DIR/$1" ]
+}
+
+case "$*" in
+    "cp "*"/systemd/familiar-update.service /etc/systemd/system/")
+        if flag cp-service-fails; then exit 1; fi
+        ;;
+    "cp "*"/systemd/familiar-update.timer /etc/systemd/system/")
+        if flag cp-timer-fails; then exit 1; fi
+        ;;
+    "systemctl daemon-reload")
+        if flag daemon-reload-fails; then exit 1; fi
+        ;;
+    "systemctl enable familiar-update.timer")
+        if flag enable-fails; then exit 1; fi
+        ;;
+    "systemctl restart familiar-update.timer")
+        if flag restart-fails; then exit 1; fi
+        ;;
+    *)
+        printf 'stub sudo: unexpected call: %s\n' "$*" >&2
+        exit 99
+        ;;
+esac
