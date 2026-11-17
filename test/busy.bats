@@ -2,6 +2,8 @@
 # Runs the busy script against the stub docker in test/stubs, never the real
 # docker, with all state kept under the per-test temporary directory.
 
+load test_helper
+
 PRECONDITION_CALLS='compose version
 info'
 
@@ -13,26 +15,7 @@ compose exec -T broker python -m broker.deploycheck"
 
 setup() {
     deploy_dir="$BATS_TEST_TMPDIR/deploy"
-    mkdir -p "$deploy_dir"
-    cp "$BATS_TEST_DIRNAME/../busy" "$deploy_dir/busy"
-    : >"$deploy_dir/docker-compose.yaml"
-    : >"$deploy_dir/.env"
-
-    export STUB_DIR="$BATS_TEST_TMPDIR/stub"
-    mkdir -p "$STUB_DIR"
-    : >"$STUB_DIR/docker-calls"
-
-    PATH="$BATS_TEST_DIRNAME/stubs:$PATH"
-}
-
-# Sets a stub docker behaviour: the file's name selects it, and its content
-# (if any) is the behaviour's argument.
-stub() {
-    printf '%s' "${2:-}" >"$STUB_DIR/$1"
-}
-
-docker_calls() {
-    cat "$STUB_DIR/docker-calls"
+    setup_docker_deploy_dir "$deploy_dir" busy
 }
 
 @test "docker missing" {
@@ -40,10 +23,7 @@ docker_calls() {
     no_docker_dir="$BATS_TEST_TMPDIR/no-docker"
     mkdir -p "$no_docker_dir"
     ln -s "$(command -v dirname)" "$no_docker_dir/dirname"
-    saved_path="$PATH"
-    PATH="$no_docker_dir"
-    run "$deploy_dir/busy"
-    PATH="$saved_path"
+    run_with_path "$no_docker_dir" "$deploy_dir/busy"
     [ "$status" -eq 1 ]
     [[ "$output" == *"docker is not installed or not on PATH"* ]]
     [ -z "$(docker_calls)" ]

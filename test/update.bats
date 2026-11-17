@@ -2,19 +2,14 @@
 # Runs the update script against the stub docker in test/stubs, never the real
 # docker, with all state kept under the per-test temporary directory.
 
+load test_helper
+
 OLD_STAMP='alpha/img:2 sha256:alpha_img_2
 zeta/img:1 sha256:zeta_img_1'
 
 setup() {
     deploy_dir="$BATS_TEST_TMPDIR/deploy"
-    mkdir -p "$deploy_dir"
-    cp "$BATS_TEST_DIRNAME/../update" "$deploy_dir/update"
-    : >"$deploy_dir/docker-compose.yaml"
-    : >"$deploy_dir/.env"
-
-    export STUB_DIR="$BATS_TEST_TMPDIR/stub"
-    mkdir -p "$STUB_DIR"
-    : >"$STUB_DIR/docker-calls"
+    setup_docker_deploy_dir "$deploy_dir" update
 
     export XDG_STATE_HOME="$BATS_TEST_TMPDIR/state"
     export FAMILIAR_DEPLOYCHECK_DELAY=0
@@ -22,14 +17,6 @@ setup() {
     stamp_dir="$XDG_STATE_HOME/familiar"
     stamp="$stamp_dir/deployed-images"
     mkdir -p "$stamp_dir"
-
-    PATH="$BATS_TEST_DIRNAME/stubs:$PATH"
-}
-
-# Sets a stub docker behaviour: the file's name selects it, and its content
-# (if any) is the behaviour's argument.
-stub() {
-    printf '%s' "${2:-}" >"$STUB_DIR/$1"
 }
 
 calls() {
@@ -41,10 +28,7 @@ calls() {
     no_docker_dir="$BATS_TEST_TMPDIR/no-docker"
     mkdir -p "$no_docker_dir"
     ln -s "$(command -v dirname)" "$no_docker_dir/dirname"
-    saved_path="$PATH"
-    PATH="$no_docker_dir"
-    run "$deploy_dir/update"
-    PATH="$saved_path"
+    run_with_path "$no_docker_dir" "$deploy_dir/update"
     [ "$status" -eq 1 ]
     [[ "$output" == *"docker is not installed or not on PATH"* ]]
 }
