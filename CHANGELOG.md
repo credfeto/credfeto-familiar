@@ -11,8 +11,11 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 ## [Unreleased]
 ### Security
 ### Added
+- bats tests for the scripts under test/
 ### Fixed
-- TBD - to be finalized after review
+- update, reset, install and busy now check each step and their preconditions and report failures with clear messages instead of failing silently
+- update now redeploys when the broker is stopped, skipping the deploy check, and retries the deploy check up to 20 times while tasks are running
+- README install links and the update description
 ### Changed
 ### Deprecated
 ### Removed
