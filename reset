@@ -1,5 +1,53 @@
-#! /bin/sh
-docker compose pull \
-   && docker compose stop \
-   && docker compose rm -f \
-   && docker compose up -d --remove-orphans
+#!/bin/sh
+# Pull the images, then stop and remove every container and bring them all
+# back up, removing any orphans. Unlike update it always recreates the
+# containers and never asks deploycheck whether the broker is safe to stop.
+set -eu
+
+die() {
+    if [ -t 2 ]; then
+        printf '\n\033[31m✗\033[0m %s\n' "$*" >&2
+    else
+        printf '\n✗ %s\n' "$*" >&2
+    fi
+    exit 1
+}
+
+success() {
+    if [ -t 1 ]; then
+        printf '\n\033[32m✓\033[0m %s\n' "$*"
+    else
+        printf '\n✓ %s\n' "$*"
+    fi
+}
+
+info() {
+    if [ -t 1 ]; then
+        printf '\n\033[32m→\033[0m %s\n' "$*"
+    else
+        printf '\n→ %s\n' "$*"
+    fi
+}
+
+script_dir=$(dirname "$0") || die "Could not work out the script directory from '$0'"
+cd "$script_dir" || die "Could not change to the script directory '$script_dir'"
+
+command -v docker >/dev/null 2>&1 || die "docker is not installed or not on PATH"
+docker compose version >/dev/null 2>&1 || die "docker compose is not available (docker compose version failed)"
+docker info >/dev/null 2>&1 || die "The docker daemon is not reachable (docker info failed)"
+[ -f docker-compose.yaml ] || die "docker-compose.yaml not found in $script_dir"
+[ -f .env ] || die ".env not found in $script_dir (see .env.example)"
+
+info "Pulling images..."
+docker compose pull || die "docker compose pull failed"
+
+info "Stopping containers..."
+docker compose stop || die "docker compose stop failed"
+
+info "Removing containers..."
+docker compose rm -f || die "docker compose rm -f failed"
+
+info "Starting containers..."
+docker compose up -d --remove-orphans || die "docker compose up -d --remove-orphans failed"
+
+success "Containers reset"
