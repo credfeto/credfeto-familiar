@@ -1,8 +1,8 @@
 #!/bin/sh
-# Test double for docker, used by test/update.bats. It never calls the real
-# docker: every call is logged to $STUB_DIR/docker-calls, and each answer is
-# chosen by the files a test writes under $STUB_DIR. Anything unexpected
-# fails loudly.
+# Test double for docker, used by test/update.bats and test/reset.bats. It
+# never calls the real docker: every call is logged to $STUB_DIR/docker-calls,
+# and each answer is chosen by the files a test writes under $STUB_DIR.
+# Anything unexpected fails loudly.
 set -eu
 
 printf '%s\n' "$*" >>"$STUB_DIR/docker-calls"
@@ -66,6 +66,15 @@ case "$*" in
     "compose up -d")
         if flag up-fails; then exit 1; fi
         if ! flag up-leaves-broker-stopped; then : >"$STUB_DIR/running"; fi
+        ;;
+    "compose stop")
+        if flag stop-fails; then exit 1; fi
+        ;;
+    "compose rm -f")
+        if flag rm-fails; then exit 1; fi
+        ;;
+    "compose up -d --remove-orphans")
+        if flag up-fails; then exit 1; fi
         ;;
     *)
         printf 'stub docker: unexpected call: %s\n' "$*" >&2
