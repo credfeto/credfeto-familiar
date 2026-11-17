@@ -107,6 +107,6 @@ case "$result" in
         die "deploycheck timed out after ${DEPLOYCHECK_TIMEOUT}s"
         ;;
     *)
-        die "docker compose exec failed with exit code $result"
+        die "docker compose exec (or timeout) failed with exit code $result"
         ;;
 esac
