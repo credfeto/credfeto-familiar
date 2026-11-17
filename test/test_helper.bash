@@ -33,11 +33,28 @@ require_stub() {
 }
 
 # setup_deploy_dir for a script that drives the stub docker, with the empty
-# docker-compose.yaml and .env every such script checks for.
+# docker-compose.yaml and .env every such script checks for. Such scripts run
+# deploycheck under timeout, so its stub is required and its calls logged too.
 setup_docker_deploy_dir() {
     setup_deploy_dir "$1" "$2" docker
     : >"$1/docker-compose.yaml"
     : >"$1/.env"
+    : >"$STUB_DIR/timeout-calls"
+    require_stub timeout
+}
+
+DEPLOYCHECK_TIMEOUT_CALL='-k 5 30 docker compose exec -T broker python -m broker.deploycheck'
+
+# Fails unless timeout was called exactly the given number of times ($1), each
+# one the deploycheck exec with its kill-after and time limit.
+assert_deploycheck_timeout_calls() {
+    total=$(wc -l <"$STUB_DIR/timeout-calls")
+    matching=$(grep -cxF -- "$DEPLOYCHECK_TIMEOUT_CALL" "$STUB_DIR/timeout-calls" || true)
+    if [ "$total" -ne "$1" ] || [ "$matching" -ne "$1" ]; then
+        printf 'expected %s timeout calls of "%s", got:\n' "$1" "$DEPLOYCHECK_TIMEOUT_CALL" >&2
+        cat "$STUB_DIR/timeout-calls" >&2
+        return 1
+    fi
 }
 
 # Sets a stub behaviour: the file's name selects it, and its content (if any)

@@ -97,6 +97,7 @@ setup() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"Broker is not running, so no tasks can be in flight"* ]]
     [ "$(docker_calls)" = "$PS_CALLS" ]
+    assert_deploycheck_timeout_calls 0
 }
 
 @test "deploycheck safe" {
@@ -106,6 +107,7 @@ setup() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"Broker is idle; safe to redeploy"* ]]
     [ "$(docker_calls)" = "$ALL_CALLS" ]
+    assert_deploycheck_timeout_calls 1
 }
 
 @test "deploycheck busy exits 2 without retrying" {

@@ -170,6 +170,7 @@ calls() {
     run "$deploy_dir/update"
     [ "$status" -eq 0 ]
     [ "$(calls deploycheck)" -eq 0 ]
+    assert_deploycheck_timeout_calls 0
     [ "$(calls 'compose up')" -eq 1 ]
     [ "$(cat "$stamp")" = "$OLD_STAMP" ]
     [ -z "$(find "$stamp_dir" -name 'deployed-images.*')" ]
@@ -182,6 +183,7 @@ calls() {
     run "$deploy_dir/update"
     [ "$status" -eq 0 ]
     [ "$(calls deploycheck)" -eq 1 ]
+    assert_deploycheck_timeout_calls 1
     [ "$(calls 'compose up')" -eq 1 ]
     [ "$(cat "$stamp")" = "$OLD_STAMP" ]
 }
@@ -192,6 +194,7 @@ calls() {
     run "$deploy_dir/update"
     [ "$status" -eq 0 ]
     [ "$(calls deploycheck)" -eq 4 ]
+    assert_deploycheck_timeout_calls 4
     [ "$(calls 'compose up')" -eq 1 ]
     [ -f "$stamp" ]
 }
@@ -264,6 +267,7 @@ calls() {
     run "$deploy_dir/update"
     [ "$status" -eq 1 ]
     [ "$(calls deploycheck)" -eq 20 ]
+    assert_deploycheck_timeout_calls 20
     [[ "$output" == *"after 20 attempts: deploycheck timed out after 30s"* ]]
     [ "$(calls 'compose up')" -eq 0 ]
     [ ! -f "$stamp" ]
