@@ -17,6 +17,19 @@ setup_deploy_dir() {
     : >"$STUB_DIR/$3-calls"
 
     PATH="$BATS_TEST_DIRNAME/stubs:$PATH"
+
+    # The scripts drive docker and sudo, so refuse to run any test unless the
+    # stub shadows the real command.
+    require_stub "$3"
+}
+
+# Fails unless the named command resolves to its stub in test/stubs.
+require_stub() {
+    resolved=$(command -v "$1" || true)
+    if [ "$resolved" != "$BATS_TEST_DIRNAME/stubs/$1" ]; then
+        printf '%s resolves to "%s", not the stub in %s/stubs\n' "$1" "$resolved" "$BATS_TEST_DIRNAME" >&2
+        return 1
+    fi
 }
 
 # setup_deploy_dir for a script that drives the stub docker, with the empty

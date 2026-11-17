@@ -12,9 +12,7 @@ setup() {
     : >"$deploy_dir/systemd/familiar-update.service"
     : >"$deploy_dir/systemd/familiar-update.timer"
 
-    # install runs sudo, so refuse to run any test unless the stubs shadow the
-    # real sudo and systemctl.
-    require_stub sudo
+    # setup_deploy_dir has checked the sudo stub; install also needs systemctl.
     require_stub systemctl
 
     ALL_CALLS="cp $deploy_dir/systemd/familiar-update.service /etc/systemd/system/
@@ -22,14 +20,6 @@ cp $deploy_dir/systemd/familiar-update.timer /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable familiar-update.timer
 systemctl restart familiar-update.timer"
-}
-
-require_stub() {
-    resolved=$(command -v "$1" || true)
-    if [ "$resolved" != "$BATS_TEST_DIRNAME/stubs/$1" ]; then
-        printf '%s resolves to "%s", not the stub in %s/stubs\n' "$1" "$resolved" "$BATS_TEST_DIRNAME" >&2
-        return 1
-    fi
 }
 
 sudo_calls() {
