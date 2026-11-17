@@ -1,2 +1,84 @@
-#! /bin/sh
-docker compose exec -T broker python -m broker.deploycheck
+#!/bin/sh
+# Ask the running broker, once, whether it is safe to redeploy. Its own
+# deploycheck output passes straight through.
+#
+# Exit codes:
+#   0  safe: nothing is running, or the broker is not running at all
+#   2  busy: tasks are in flight
+#   1  unknown: deploycheck could not tell, or any other failure
+set -eu
+
+die() {
+    if [ -t 2 ]; then
+        printf '\n\033[31m✗\033[0m %s\n' "$*" >&2
+    else
+        printf '\n✗ %s\n' "$*" >&2
+    fi
+    exit 1
+}
+
+success() {
+    if [ -t 1 ]; then
+        printf '\n\033[32m✓\033[0m %s\n' "$*"
+    else
+        printf '\n✓ %s\n' "$*"
+    fi
+}
+
+info() {
+    if [ -t 1 ]; then
+        printf '\n\033[32m→\033[0m %s\n' "$*"
+    else
+        printf '\n→ %s\n' "$*"
+    fi
+}
+
+# die's message without its exit, because busy must exit 2, not 1, so that
+# callers can tell busy from unknown.
+failure() {
+    if [ -t 2 ]; then
+        printf '\n\033[31m✗\033[0m %s\n' "$*" >&2
+    else
+        printf '\n✗ %s\n' "$*" >&2
+    fi
+}
+
+DEPLOYCHECK_SAFE=0
+DEPLOYCHECK_UNKNOWN=1
+DEPLOYCHECK_BUSY=2
+
+script_dir=$(dirname "$0") || die "Could not work out the script directory from '$0'"
+cd "$script_dir" || die "Could not change to the script directory '$script_dir'"
+
+command -v docker >/dev/null 2>&1 || die "docker is not installed or not on PATH"
+docker compose version >/dev/null 2>&1 || die "docker compose is not available (docker compose version failed)"
+docker info >/dev/null 2>&1 || die "The docker daemon is not reachable (docker info failed)"
+[ -f docker-compose.yaml ] || die "docker-compose.yaml not found in $script_dir"
+[ -f .env ] || die ".env not found in $script_dir (see .env.example)"
+
+broker_container=$(docker compose ps -q --status running broker) || die "Could not query the broker's state (docker compose ps failed)"
+if [ -z "$broker_container" ]; then
+    success "Broker is not running, so no tasks can be in flight"
+    exit 0
+fi
+
+info "Checking whether the broker is busy..."
+result=0
+docker compose exec -T broker python -m broker.deploycheck || result=$?
+
+case "$result" in
+    "$DEPLOYCHECK_SAFE")
+        success "Broker is idle; safe to redeploy"
+        exit 0
+        ;;
+    "$DEPLOYCHECK_BUSY")
+        failure "Broker busy, tasks are running"
+        exit 2
+        ;;
+    "$DEPLOYCHECK_UNKNOWN")
+        die "deploycheck could not tell whether tasks are running"
+        ;;
+    *)
+        die "docker compose exec failed with exit code $result"
+        ;;
+esac
