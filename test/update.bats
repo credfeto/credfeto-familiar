@@ -33,6 +33,15 @@ calls() {
     [[ "$output" == *"docker is not installed or not on PATH"* ]]
 }
 
+@test "timeout missing" {
+    no_timeout_dir="$BATS_TEST_TMPDIR/no-timeout"
+    make_no_timeout_dir "$no_timeout_dir"
+    run_with_path "$no_timeout_dir" "$deploy_dir/update"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"timeout is not installed or not on PATH"* ]]
+    [ -z "$(docker_calls)" ]
+}
+
 @test "docker compose version fails" {
     stub version-fails
     run "$deploy_dir/update"
@@ -70,6 +79,20 @@ calls() {
     run "$deploy_dir/update"
     [ "$status" -eq 1 ]
     [[ "$output" == *"must be a whole number"* ]]
+}
+
+@test "invalid timeout override dies" {
+    FAMILIAR_DEPLOYCHECK_TIMEOUT=abc run "$deploy_dir/update"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"FAMILIAR_DEPLOYCHECK_TIMEOUT must be a whole number"* ]]
+    [ -z "$(docker_calls)" ]
+}
+
+@test "zero timeout override dies" {
+    FAMILIAR_DEPLOYCHECK_TIMEOUT=0 run "$deploy_dir/update"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"FAMILIAR_DEPLOYCHECK_TIMEOUT must be greater than zero"* ]]
+    [ -z "$(docker_calls)" ]
 }
 
 @test "pull fails" {
@@ -211,6 +234,29 @@ calls() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"docker compose exec failed with exit code 125"* ]]
     [ "$(calls deploycheck)" -eq 2 ]
+}
+
+@test "deploycheck timed out, then safe" {
+    stub running
+    stub deploycheck-results "124 0"
+    run "$deploy_dir/update"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"deploycheck timed out after 30s"* ]]
+    [ "$(calls deploycheck)" -eq 2 ]
+    # The first check, one re-check after the timeout, and the check after up.
+    [ "$(calls 'compose ps')" -eq 3 ]
+    [ "$(calls 'compose up')" -eq 1 ]
+}
+
+@test "deploycheck timed out for all 20 attempts dies" {
+    stub running
+    stub deploycheck-results 124
+    run "$deploy_dir/update"
+    [ "$status" -eq 1 ]
+    [ "$(calls deploycheck)" -eq 20 ]
+    [[ "$output" == *"after 20 attempts: deploycheck timed out after 30s"* ]]
+    [ "$(calls 'compose up')" -eq 0 ]
+    [ ! -f "$stamp" ]
 }
 
 @test "exec fails, then the broker is reported stopped: up runs without retrying deploycheck" {

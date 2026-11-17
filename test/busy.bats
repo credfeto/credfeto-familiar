@@ -29,6 +29,29 @@ setup() {
     [ -z "$(docker_calls)" ]
 }
 
+@test "timeout missing" {
+    no_timeout_dir="$BATS_TEST_TMPDIR/no-timeout"
+    make_no_timeout_dir "$no_timeout_dir"
+    run_with_path "$no_timeout_dir" "$deploy_dir/busy"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"timeout is not installed or not on PATH"* ]]
+    [ -z "$(docker_calls)" ]
+}
+
+@test "invalid timeout override dies" {
+    FAMILIAR_DEPLOYCHECK_TIMEOUT=abc run "$deploy_dir/busy"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"FAMILIAR_DEPLOYCHECK_TIMEOUT must be a whole number"* ]]
+    [ -z "$(docker_calls)" ]
+}
+
+@test "zero timeout override dies" {
+    FAMILIAR_DEPLOYCHECK_TIMEOUT=0 run "$deploy_dir/busy"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"FAMILIAR_DEPLOYCHECK_TIMEOUT must be greater than zero"* ]]
+    [ -z "$(docker_calls)" ]
+}
+
 @test "docker compose version fails" {
     stub version-fails
     run "$deploy_dir/busy"
@@ -109,6 +132,15 @@ setup() {
     run "$deploy_dir/busy"
     [ "$status" -eq 1 ]
     [[ "$output" == *"docker compose exec failed with exit code 125"* ]]
+    [ "$(docker_calls)" = "$ALL_CALLS" ]
+}
+
+@test "deploycheck timed out exits 1" {
+    stub running
+    stub deploycheck-results "124 0"
+    run "$deploy_dir/busy"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"deploycheck timed out after 30s"* ]]
     [ "$(docker_calls)" = "$ALL_CALLS" ]
 }
 

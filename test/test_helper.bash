@@ -50,6 +50,14 @@ docker_calls() {
     cat "$STUB_DIR/docker-calls"
 }
 
+# Makes a directory ($1) holding only dirname and the stub docker, so a script
+# run with it as PATH gets past its docker check but finds no timeout.
+make_no_timeout_dir() {
+    mkdir -p "$1"
+    ln -s "$(command -v dirname)" "$1/dirname"
+    ln -s "$BATS_TEST_DIRNAME/stubs/docker" "$1/docker"
+}
+
 # Runs the given script ($2) with PATH set to only the given directory ($1).
 run_with_path() {
     saved_path="$PATH"
