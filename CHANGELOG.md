@@ -11,7 +11,14 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 ## [Unreleased]
 ### Security
 ### Added
+- bats tests for the scripts under test/
 ### Fixed
+- update, reset, install and busy now check each step and their preconditions and report failures with clear messages instead of failing silently
+- README install links and the update description
+- update now redeploys when the broker is stopped, skipping the deploy check, including when the broker stops between retries
+- update limits each deploy check to 30 seconds
+- update retries the check up to 20 times while it reports busy, inconclusive, timed out or failed
+- busy reports the deploy check result as exit code 0 (safe), 2 (busy) or 1 (unknown), with each check limited to 30 seconds
 ### Changed
 ### Deprecated
 ### Removed

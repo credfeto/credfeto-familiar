@@ -1,2 +1,112 @@
-#! /bin/sh
-docker compose exec -T broker python -m broker.deploycheck
+#!/bin/sh
+# Ask the running broker, once, whether it is safe to redeploy. Its own
+# deploycheck output passes straight through.
+#
+# Exit codes:
+#   0  safe: nothing is running, or the broker is not running at all
+#   2  busy: tasks are in flight
+#   1  unknown: deploycheck could not tell, timed out after
+#      DEPLOYCHECK_TIMEOUT seconds, or any other failure
+set -eu
+
+die() {
+    if [ -t 2 ]; then
+        printf '\n\033[31m✗\033[0m %s\n' "$*" >&2
+    else
+        printf '\n✗ %s\n' "$*" >&2
+    fi
+    exit 1
+}
+
+success() {
+    if [ -t 1 ]; then
+        printf '\n\033[32m✓\033[0m %s\n' "$*"
+    else
+        printf '\n✓ %s\n' "$*"
+    fi
+}
+
+info() {
+    if [ -t 1 ]; then
+        printf '\n\033[32m→\033[0m %s\n' "$*"
+    else
+        printf '\n→ %s\n' "$*"
+    fi
+}
+
+# die's message without its exit, because busy must exit 2, not 1, so that
+# callers can tell busy from unknown.
+failure() {
+    if [ -t 2 ]; then
+        printf '\n\033[31m✗\033[0m %s\n' "$*" >&2
+    else
+        printf '\n✗ %s\n' "$*" >&2
+    fi
+}
+
+DEPLOYCHECK_SAFE=0
+DEPLOYCHECK_UNKNOWN=1
+DEPLOYCHECK_BUSY=2
+DEPLOYCHECK_TIMED_OUT=124
+# What timeout exits with once it has had to SIGKILL a docker CLI that
+# ignored the SIGTERM.
+DEPLOYCHECK_KILLED=137
+# How long after the SIGTERM timeout waits before sending SIGKILL.
+DEPLOYCHECK_KILL_AFTER=5
+
+# A wedged broker would otherwise hang deploycheck, and with it the oneshot
+# update unit, for ever. Overridable only so tests can check the validation.
+DEPLOYCHECK_TIMEOUT="${FAMILIAR_DEPLOYCHECK_TIMEOUT:-30}"
+
+case "$DEPLOYCHECK_TIMEOUT" in
+    *[!0-9]*) die "FAMILIAR_DEPLOYCHECK_TIMEOUT must be a whole number of seconds, got '$DEPLOYCHECK_TIMEOUT'" ;;
+esac
+# timeout 0 would disable the limit rather than enforce one.
+[ "$DEPLOYCHECK_TIMEOUT" -gt 0 ] || die "FAMILIAR_DEPLOYCHECK_TIMEOUT must be greater than zero, got '$DEPLOYCHECK_TIMEOUT'"
+
+script_dir=$(dirname "$0") || die "Could not work out the script directory from '$0'"
+cd "$script_dir" || die "Could not change to the script directory '$script_dir'"
+
+command -v docker >/dev/null 2>&1 || die "docker is not installed or not on PATH"
+command -v timeout >/dev/null 2>&1 || die "timeout is not installed or not on PATH (it is part of coreutils)"
+docker compose version >/dev/null 2>&1 || die "docker compose is not available (docker compose version failed)"
+docker info >/dev/null 2>&1 || die "The docker daemon is not reachable (docker info failed)"
+[ -f docker-compose.yaml ] || die "docker-compose.yaml not found in $script_dir"
+[ -f .env ] || die ".env not found in $script_dir (see .env.example)"
+
+broker_container=$(docker compose ps -q --status running broker) || die "Could not query the broker's state (docker compose ps failed)"
+if [ -z "$broker_container" ]; then
+    success "Broker is not running, so no tasks can be in flight"
+    exit 0
+fi
+
+info "Checking whether the broker is busy..."
+result=0
+# timeout runs docker in a background process group, so stdin comes from
+# /dev/null: deploycheck reads none, and a docker CLI reading the terminal
+# from there would be stopped by SIGTTIN on a manual run. deploycheck caps
+# its own HTTP call at 5s, so the process in the container only outlives
+# this limit when the exec itself wedges.
+timeout -k "$DEPLOYCHECK_KILL_AFTER" "$DEPLOYCHECK_TIMEOUT" docker compose exec -T broker python -m broker.deploycheck </dev/null || result=$?
+
+case "$result" in
+    "$DEPLOYCHECK_SAFE")
+        success "Broker is idle; safe to redeploy"
+        exit 0
+        ;;
+    "$DEPLOYCHECK_BUSY")
+        failure "Broker busy, tasks are running"
+        exit 2
+        ;;
+    "$DEPLOYCHECK_UNKNOWN")
+        # docker compose exec also exits 1 for its own failures; either way
+        # the cause is in the stderr already passed through above.
+        die "deploycheck could not tell whether tasks are running, or docker compose exec failed (exit 1)"
+        ;;
+    "$DEPLOYCHECK_TIMED_OUT" | "$DEPLOYCHECK_KILLED")
+        die "deploycheck timed out after ${DEPLOYCHECK_TIMEOUT}s"
+        ;;
+    *)
+        die "docker compose exec (or timeout) failed with exit code $result"
+        ;;
+esac

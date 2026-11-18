@@ -1,0 +1,101 @@
+#!/bin/sh
+# Test double for docker, used by test/update.bats, test/reset.bats and
+# test/busy.bats. It never calls the real docker: every call is logged to
+# $STUB_DIR/docker-calls, and each answer is chosen by the files a test
+# writes under $STUB_DIR. Anything unexpected fails loudly.
+set -eu
+
+printf '%s\n' "$*" >>"$STUB_DIR/docker-calls"
+
+flag() {
+    [ -f "$STUB_DIR/$1" ]
+}
+
+# The file names the single image the behaviour applies to.
+flag_names_image() {
+    flag "$1" && [ "$(cat "$STUB_DIR/$1")" = "$2" ]
+}
+
+case "$*" in
+    "compose version")
+        if flag version-fails; then exit 1; fi
+        ;;
+    "info")
+        if flag info-fails; then exit 1; fi
+        ;;
+    "compose pull")
+        if flag pull-fails; then exit 1; fi
+        ;;
+    "compose config --images")
+        if flag config-fails; then exit 3; fi
+        if flag config-empty; then exit 0; fi
+        # config-images replaces the default image list, one image per line.
+        if flag config-images; then
+            cat "$STUB_DIR/config-images"
+            exit 0
+        fi
+        printf 'zeta/img:1\nalpha/img:2\n'
+        ;;
+    "image inspect -f {{.Id}} "*)
+        image=$5
+        if flag_names_image inspect-fails "$image"; then exit 1; fi
+        if flag_names_image inspect-empty "$image"; then exit 0; fi
+        printf 'sha256:%s\n' "$(printf '%s' "$image" | tr '/:' '__')"
+        ;;
+    "compose ps -q --status running broker")
+        if flag ps-fails; then exit 1; fi
+        if flag running; then printf 'abc123\n'; fi
+        # broker-stops-after-ps holds a call count: the broker stops (the
+        # running flag is removed) once that many ps calls have answered.
+        if flag broker-stops-after-ps; then
+            ps_count=0
+            if flag ps-count; then
+                ps_count=$(cat "$STUB_DIR/ps-count")
+            fi
+            ps_count=$((ps_count + 1))
+            printf '%s\n' "$ps_count" >"$STUB_DIR/ps-count"
+            if [ "$ps_count" -eq "$(cat "$STUB_DIR/broker-stops-after-ps")" ]; then
+                rm -f "$STUB_DIR/running"
+            fi
+        fi
+        ;;
+    "compose exec -T broker python -m broker.deploycheck")
+        count=0
+        if flag deploycheck-count; then
+            count=$(cat "$STUB_DIR/deploycheck-count")
+        fi
+        count=$((count + 1))
+        printf '%s\n' "$count" >"$STUB_DIR/deploycheck-count"
+        # deploycheck-results holds space separated exit codes, one per call;
+        # the last one repeats for every call after it.
+        results=0
+        if flag deploycheck-results; then
+            results=$(cat "$STUB_DIR/deploycheck-results")
+        fi
+        code=0
+        index=1
+        for value in $results; do
+            code=$value
+            if [ "$index" -ge "$count" ]; then break; fi
+            index=$((index + 1))
+        done
+        exit "$code"
+        ;;
+    "compose up -d")
+        if flag up-fails; then exit 1; fi
+        if ! flag up-leaves-broker-stopped; then : >"$STUB_DIR/running"; fi
+        ;;
+    "compose stop")
+        if flag stop-fails; then exit 1; fi
+        ;;
+    "compose rm -f")
+        if flag rm-fails; then exit 1; fi
+        ;;
+    "compose up -d --remove-orphans")
+        if flag up-fails; then exit 1; fi
+        ;;
+    *)
+        printf 'stub docker: unexpected call: %s\n' "$*" >&2
+        exit 99
+        ;;
+esac
