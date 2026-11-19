@@ -6,12 +6,12 @@
 # Upgrade by changing FAMILIAR_RELEASE in .env and running the same command.
 # Only the broker runs from this file: it creates the agent and MCP-server
 # containers itself. Why it's shaped like this: SPEC.md §13.
----
 services:
   broker:
     image: "${FAMILIAR_IMAGE_REPO:-ghcr.io/funfair-tech/familiar}:${FAMILIAR_RELEASE:?set FAMILIAR_RELEASE in .env (e.g. 1.0 or latest)}"
     container_name: ${FAMILIAR_INSTANCE:+${FAMILIAR_INSTANCE}-}familiar-broker
     command: python -m broker
+    # docker-init as PID 1 reaps orphans (e.g. git's detached gc).
     init: true
     # Lets running turns finish before the broker is stopped.
     stop_grace_period: 180s
@@ -20,8 +20,13 @@ services:
       - ${FAMILIAR_DATA:-familiar-data}:/data
       # Encrypted snapshots from scripts/backup.py (FAMILIAR_BACKUPS).
       - ${FAMILIAR_BACKUPS:-familiar-backups}:/backups
-      # The broker starts and stops agent containers.
-      - /var/run/docker.sock:/var/run/docker.sock
+      # The broker starts and stops agent containers (a directory: SPEC.md §13).
+      - type: bind
+        source: /run
+        target: /host-run
+        read_only: true
+        bind:
+          recursive: disabled
     ports:
       # The admin UI (FAMILIAR_ADMIN_BIND, FAMILIAR_ADMIN_PORT).
       - "${FAMILIAR_ADMIN_BIND:-0.0.0.0}:${FAMILIAR_ADMIN_PORT:-8081}:8081"
@@ -29,12 +34,49 @@ services:
       - FAMILIAR_INSTANCE
       - FAMILIAR_BACKUP_KEY
       - FAMILIAR_BACKUP_KEEP
+      - DOCKER_HOST=unix:///host-run/docker.sock
     # The docker socket's group, so the broker (uid 1000) can use it.
     group_add:
       - "${DOCKER_GID:?set DOCKER_GID in .env: stat -c %g /var/run/docker.sock}"
     networks:
       - familiar-net      # broker <-> agents
       - familiar-mcp-net  # broker <-> MCP-server containers
+      - familiar-edge-net # broker <-> the edge
+    restart: unless-stopped
+
+  # The only container facing the internet: it serves webhooks and OAuth
+  # callbacks and forwards them to the broker, holding nothing itself.
+  # Point the public URL's proxy here, not at the admin port (SPEC.md §13).
+  edge:
+    # Its own minimal image: Python and the edge's code, no shell.
+    image: "${FAMILIAR_IMAGE_REPO:-ghcr.io/funfair-tech/familiar}-edge:${FAMILIAR_RELEASE:?set FAMILIAR_RELEASE in .env}"
+    container_name: ${FAMILIAR_INSTANCE:+${FAMILIAR_INSTANCE}-}familiar-edge
+    init: true
+    # No volumes, no secrets, no socket, no writable filesystem, no privileges.
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    pids_limit: 64
+    ports:
+      # Webhooks + OAuth callbacks (FAMILIAR_EDGE_BIND, FAMILIAR_EDGE_PORT).
+      - "${FAMILIAR_EDGE_BIND:-0.0.0.0}:${FAMILIAR_EDGE_PORT:-8083}:8080"
+    networks:
+      - familiar-edge-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+    # Anyone can make it log, so its log is capped (docker keeps it forever).
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
     restart: unless-stopped
 
   # Never runs (scale: 0): listed so `docker compose pull` fetches the image the
@@ -43,11 +85,3 @@ services:
     image: "${FAMILIAR_IMAGE_REPO:-ghcr.io/funfair-tech/familiar}-mcp-host:${FAMILIAR_RELEASE:?set FAMILIAR_RELEASE in .env}"
     scale: 0
     network_mode: none
-
-networks:
-  familiar-net:
-  familiar-mcp-net:
-
-volumes:
-  familiar-data:
-  familiar-backups:
