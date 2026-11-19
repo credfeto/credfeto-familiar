@@ -85,3 +85,16 @@ services:
     image: "${FAMILIAR_IMAGE_REPO:-ghcr.io/funfair-tech/familiar}-mcp-host:${FAMILIAR_RELEASE:?set FAMILIAR_RELEASE in .env}"
     scale: 0
     network_mode: none
+
+
+networks:
+  familiar-net:
+  familiar-mcp-net:
+  # Not `internal`: docker won't publish a port from a container only on an
+  # internal network. The broker's boot firewall cuts the edge's egress, for
+  # IPv4 only under iptables, so never enable IPv6 here.
+  familiar-edge-net:
+
+volumes:
+  familiar-data:
+  familiar-backups:
