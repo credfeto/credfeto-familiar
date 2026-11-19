@@ -30,6 +30,7 @@ services:
     ports:
       # The admin UI (FAMILIAR_ADMIN_BIND, FAMILIAR_ADMIN_PORT).
       - "${FAMILIAR_ADMIN_BIND:-0.0.0.0}:${FAMILIAR_ADMIN_PORT:-8081}:8081"
+      - "${FAMILIAR_ADMIN_BIND_IPV6:-[::]}:${FAMILIAR_ADMIN_PORT:-8081}:8081"
     environment:
       - FAMILIAR_INSTANCE
       - FAMILIAR_BACKUP_KEY
@@ -65,6 +66,7 @@ services:
     ports:
       # Webhooks + OAuth callbacks (FAMILIAR_EDGE_BIND, FAMILIAR_EDGE_PORT).
       - "${FAMILIAR_EDGE_BIND:-0.0.0.0}:${FAMILIAR_EDGE_PORT:-8083}:8080"
+      - "${FAMILIAR_EDGE_BIND_IPV6:-[::]}:${FAMILIAR_EDGE_PORT:-8083}:8080"
     networks:
       - familiar-edge-net
     healthcheck:
