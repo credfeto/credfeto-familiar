@@ -12,6 +12,7 @@ services:
     image: "${FAMILIAR_IMAGE_REPO:-ghcr.io/funfair-tech/familiar}:${FAMILIAR_RELEASE:?set FAMILIAR_RELEASE in .env (e.g. 1.0 or latest)}"
     container_name: ${FAMILIAR_INSTANCE:+${FAMILIAR_INSTANCE}-}familiar-broker
     command: python -m broker
+    init: true
     # Lets running turns finish before the broker is stopped.
     stop_grace_period: 180s
     volumes:
