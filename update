@@ -165,7 +165,7 @@ else
 fi
 
 info "Starting containers..."
-docker compose up -d || die "docker compose up -d failed"
+docker compose up -d --remove-orphans || die "docker compose up -d failed"
 
 broker_is_running || die "The broker is not running after docker compose up -d"
 
