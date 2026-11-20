@@ -1,7 +1,0 @@
-networks:
-  familiar-net:
-    enable_ipv6: false
-  familiar-mcp-net:
-    enable_ipv6: false
-  familiar-edge-net:
-    enable_ipv6: false
