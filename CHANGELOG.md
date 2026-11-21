@@ -20,6 +20,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - update retries the check up to 20 times while it reports busy, inconclusive, timed out or failed
 - busy reports the deploy check result as exit code 0 (safe), 2 (busy) or 1 (unknown), with each check limited to 30 seconds
 - README: replace leftover cs-template title, description and badge links with credfeto-familiar content (#10)
+- reset now waits for the broker deploy check before restarting containers and records the deployed images so a following update does nothing
 ### Changed
 - README: explain that the clone is the install directory and how to install and update it (#11)
 ### Deprecated
