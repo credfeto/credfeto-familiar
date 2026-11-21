@@ -36,6 +36,16 @@ case "$*" in
         fi
         printf 'zeta/img:1\nalpha/img:2\n'
         ;;
+    "compose config")
+        if flag resolve-config-fails; then exit 15; fi
+        # resolved-config replaces the default resolved configuration. The
+        # default holds a secret sentinel so tests can check it never leaks.
+        if flag resolved-config; then
+            cat "$STUB_DIR/resolved-config"
+            exit 0
+        fi
+        printf 'services:\n  broker:\n    environment:\n      API_KEY: stub-secret-sentinel\n'
+        ;;
     "image inspect -f {{.Id}} "*)
         image=$5
         if flag_names_image inspect-fails "$image"; then exit 1; fi

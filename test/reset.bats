@@ -16,14 +16,16 @@ compose pull
 compose config --images
 image inspect -f {{.Id}} alpha/img:2
 image inspect -f {{.Id}} zeta/img:1
+compose config
 $BROKER_PS_CALL
 compose stop
 compose rm -f
 compose up -d --remove-orphans
 $BROKER_PS_CALL"
 
-STAMP_CONTENT='alpha/img:2 sha256:alpha_img_2
-zeta/img:1 sha256:zeta_img_1'
+STAMP_CONTENT="alpha/img:2 sha256:alpha_img_2
+zeta/img:1 sha256:zeta_img_1
+$(config_stamp_line)"
 
 setup() {
     deploy_dir="$BATS_TEST_TMPDIR/deploy"
@@ -45,16 +47,6 @@ calls_through() {
 
 calls() {
     grep -c -- "$1" "$STUB_DIR/docker-calls" || true
-}
-
-# Puts a command named $1 first on PATH whose body is $2, for failures the
-# stubs in test/stubs cannot produce.
-override_command() {
-    override_dir="$BATS_TEST_TMPDIR/override"
-    mkdir -p "$override_dir"
-    printf '#!/bin/sh\n%s\n' "$2" >"$override_dir/$1"
-    chmod +x "$override_dir/$1"
-    PATH="$override_dir:$PATH"
 }
 
 # Fails unless reset left the containers alone: nothing stopped, removed or
@@ -180,6 +172,32 @@ assert_containers_untouched() {
     assert_containers_untouched
 }
 
+@test "resolving the compose configuration fails" {
+    stub resolve-config-fails
+    run "$deploy_dir/reset"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"docker compose config failed"* ]]
+    [ "$(docker_calls)" = "$(calls_through 'compose config')" ]
+    assert_containers_untouched
+}
+
+@test "hashing the compose configuration fails" {
+    override_command sha256sum 'exit 1'
+    run "$deploy_dir/reset"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Could not hash the compose configuration"* ]]
+    [[ "$output" != *"$CONFIG_SECRET_SENTINEL"* ]]
+    assert_containers_untouched
+}
+
+@test "the stamp records a hash of the configuration, never the configuration" {
+    run "$deploy_dir/reset"
+    [ "$status" -eq 0 ]
+    [[ "$(tail -n 1 "$stamp")" =~ ^config\ [0-9a-f]{64}$ ]]
+    [[ "$output" != *"$CONFIG_SECRET_SENTINEL"* ]]
+    [ -z "$(grep -rlF -- "$CONFIG_SECRET_SENTINEL" "$stamp_dir" || true)" ]
+}
+
 @test "ps fails" {
     stub ps-fails
     run "$deploy_dir/reset"
@@ -197,7 +215,8 @@ assert_containers_untouched() {
     [ "$status" -eq 0 ]
     [ "$(grep -cxF 'image inspect -f {{.Id}} repo/img:[ab]' "$STUB_DIR/docker-calls")" -eq 1 ]
     [ "$(grep -cF 'repo/img:a' "$STUB_DIR/docker-calls" || true)" -eq 0 ]
-    [ "$(cat "$stamp")" = 'repo/img:[ab] sha256:repo_img_[ab]' ]
+    [ "$(cat "$stamp")" = "repo/img:[ab] sha256:repo_img_[ab]
+$(config_stamp_line)" ]
 }
 
 @test "broker not running: no deploycheck, containers recreated, stamp written" {
@@ -229,6 +248,7 @@ compose pull
 compose config --images
 image inspect -f {{.Id}} alpha/img:2
 image inspect -f {{.Id}} zeta/img:1
+compose config
 $BROKER_PS_CALL
 compose exec -T broker python -m broker.deploycheck
 compose stop
