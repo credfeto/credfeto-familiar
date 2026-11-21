@@ -19,6 +19,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - update limits each deploy check to 30 seconds
 - update retries the check up to 20 times while it reports busy, inconclusive, timed out or failed
 - busy reports the deploy check result as exit code 0 (safe), 2 (busy) or 1 (unknown), with each check limited to 30 seconds
+- README: replace leftover cs-template title, description and badge links with credfeto-familiar content (#10)
 ### Changed
 ### Deprecated
 ### Removed
