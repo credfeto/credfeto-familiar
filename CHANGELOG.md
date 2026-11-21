@@ -21,6 +21,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - busy reports the deploy check result as exit code 0 (safe), 2 (busy) or 1 (unknown), with each check limited to 30 seconds
 - README: replace leftover cs-template title, description and badge links with credfeto-familiar content (#10)
 - reset now gates on the broker deploy check, skipping it when the broker is not running and retrying while it is busy or inconclusive, and records the deployed images stamp so a following update with unchanged images does nothing (#12)
+- familiar-update.service caps a run with TimeoutStartSec so a hung docker call cannot block the hourly timer
 ### Changed
 - README: explain that the clone is the install directory and how to install and update it (#11)
 ### Deprecated
