@@ -81,7 +81,7 @@ case "$*" in
         done
         exit "$code"
         ;;
-    "compose up -d")
+    "compose up -d"|"compose up -d --remove-orphans")
         if flag up-fails; then exit 1; fi
         if ! flag up-leaves-broker-stopped; then : >"$STUB_DIR/running"; fi
         ;;
@@ -90,9 +90,6 @@ case "$*" in
         ;;
     "compose rm -f")
         if flag rm-fails; then exit 1; fi
-        ;;
-    "compose up -d --remove-orphans")
-        if flag up-fails; then exit 1; fi
         ;;
     *)
         printf 'stub docker: unexpected call: %s\n' "$*" >&2
