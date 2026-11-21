@@ -21,6 +21,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - busy reports the deploy check result as exit code 0 (safe), 2 (busy) or 1 (unknown), with each check limited to 30 seconds
 - README: replace leftover cs-template title, description and badge links with credfeto-familiar content (#10)
 ### Changed
+- README: explain that the clone is the install directory and how to install and update it (#11)
 ### Deprecated
 ### Removed
 - unused .NET scaffolding: removed src/global.json, Credfeto.Template.slnx and its DotSettings, Directory.Build.props, Packaging.props, UnitTests.props, the rule-settings files and src/.gitignore; .env.example keys are now in the same order docker-compose.yaml reads them, and docker-compose.yaml starts with a --- document marker
