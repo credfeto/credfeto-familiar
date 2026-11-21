@@ -1,3 +1,4 @@
+---
 # A familiar install: this file and a .env (see .env.example) in a directory of
 # their own. `python -m broker.init` writes both (see the README); then:
 #
