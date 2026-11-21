@@ -22,7 +22,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - README: replace leftover cs-template title, description and badge links with credfeto-familiar content (#10)
 - reset now gates on the broker deploy check, skipping it when the broker is not running and retrying while it is busy or inconclusive, and records the deployed images stamp so a following update with unchanged images does nothing (#12)
 - familiar-update.service now sets TimeoutStartSec=45min so a hung update run is killed and the hourly timer can fire again
-- update now redeploys when .env or docker-compose.yaml changes even if no image changed, by recording a config hash in the deploy stamp (#14)
+- update and reset now record a SHA-256 hash of the resolved docker compose config in the deploy stamp, so changes to .env or the compose file alone trigger a redeploy even when no image changed (#14)
 ### Changed
 - README: explain that the clone is the install directory and how to install and update it (#11)
 ### Deprecated
