@@ -1,7 +1,19 @@
 #!/bin/sh
 # Pull the images, then stop and remove every container and bring them all
 # back up, removing any orphans. Unlike update it always recreates the
-# containers and never asks deploycheck whether the broker is safe to stop.
+# containers, even when the images are unchanged since the last deploy.
+#
+# When the broker isn't running no tasks can be in flight, so deploycheck is
+# skipped. When it is running, deploycheck must report it safe before the
+# containers are stopped: it is tried up to DEPLOYCHECK_ATTEMPTS times,
+# DEPLOYCHECK_DELAY seconds apart, while it answers busy or inconclusive, and
+# the script fails if it never reports safe. An inconclusive answer re-checks
+# the broker, and one that has stopped since is reset straight away like one
+# that was never running. Each deploycheck is limited to DEPLOYCHECK_TIMEOUT
+# seconds, and one that times out counts as inconclusive.
+#
+# Once the broker is back up the deployed images are recorded in the same
+# stamp update uses, so the next update does not redeploy unchanged images.
 set -eu
 
 die() {
@@ -29,17 +41,118 @@ info() {
     fi
 }
 
+DEPLOYCHECK_ATTEMPTS=20
+# Overridable only so tests do not have to wait between attempts.
+DEPLOYCHECK_DELAY="${FAMILIAR_DEPLOYCHECK_DELAY:-5}"
+# A wedged broker would otherwise hang deploycheck, and with it the reset, for
+# ever. Overridable only so tests can check the validation.
+DEPLOYCHECK_TIMEOUT="${FAMILIAR_DEPLOYCHECK_TIMEOUT:-30}"
+
+DEPLOYCHECK_SAFE=0
+DEPLOYCHECK_UNKNOWN=1
+DEPLOYCHECK_BUSY=2
+DEPLOYCHECK_TIMED_OUT=124
+# What timeout exits with once it has had to SIGKILL a docker CLI that
+# ignored the SIGTERM.
+DEPLOYCHECK_KILLED=137
+# How long after the SIGTERM timeout waits before sending SIGKILL.
+DEPLOYCHECK_KILL_AFTER=5
+
+case "$DEPLOYCHECK_DELAY" in
+    *[!0-9]*) die "FAMILIAR_DEPLOYCHECK_DELAY must be a whole number of seconds, got '$DEPLOYCHECK_DELAY'" ;;
+esac
+case "$DEPLOYCHECK_TIMEOUT" in
+    *[!0-9]*) die "FAMILIAR_DEPLOYCHECK_TIMEOUT must be a whole number of seconds, got '$DEPLOYCHECK_TIMEOUT'" ;;
+esac
+# timeout 0 would disable the limit rather than enforce one.
+[ "$DEPLOYCHECK_TIMEOUT" -gt 0 ] || die "FAMILIAR_DEPLOYCHECK_TIMEOUT must be greater than zero, got '$DEPLOYCHECK_TIMEOUT'"
+
+STAMP="${XDG_STATE_HOME:-$HOME/.local/state}/familiar/deployed-images"
+
 script_dir=$(dirname "$0") || die "Could not work out the script directory from '$0'"
 cd "$script_dir" || die "Could not change to the script directory '$script_dir'"
 
 command -v docker >/dev/null 2>&1 || die "docker is not installed or not on PATH"
+command -v timeout >/dev/null 2>&1 || die "timeout is not installed or not on PATH (it is part of coreutils)"
 docker compose version >/dev/null 2>&1 || die "docker compose is not available (docker compose version failed)"
 docker info >/dev/null 2>&1 || die "The docker daemon is not reachable (docker info failed)"
 [ -f docker-compose.yaml ] || die "docker-compose.yaml not found in $script_dir"
 [ -f .env ] || die ".env not found in $script_dir (see .env.example)"
 
+broker_is_running() {
+    broker_container=$(docker compose ps -q --status running broker) || die "Could not query the broker's state (docker compose ps failed)"
+    [ -n "$broker_container" ]
+}
+
 info "Pulling images..."
 docker compose pull || die "docker compose pull failed"
+
+images=$(docker compose config --images) || die "Could not list the images (docker compose config --images failed)"
+# Sorted in the C locale, as update sorts them, so the stamp written here
+# matches the one update compares against whatever the caller's locale.
+sorted_images=$(printf '%s\n' "$images" | LC_ALL=C sort) || die "Could not sort the image list"
+[ -n "$sorted_images" ] || die "docker compose config --images listed no images"
+
+current=""
+# The list is split into words on purpose (image refs hold no whitespace), but
+# globbing is turned off so a ref holding *, ? or [ is never matched against
+# files in the script directory.
+set -f
+for image in $sorted_images; do
+    image_id=$(docker image inspect -f '{{.Id}}' "$image") || die "Could not inspect image '$image'"
+    [ -n "$image_id" ] || die "docker image inspect returned no id for image '$image'"
+    if [ -z "$current" ]; then
+        current="$image $image_id"
+    else
+        current="$current
+$image $image_id"
+    fi
+done
+set +f
+
+if broker_is_running; then
+    attempt=1
+    while :; do
+        info "Checking the broker is safe to reset (attempt $attempt of $DEPLOYCHECK_ATTEMPTS)..."
+        result=0
+        # timeout runs docker in a background process group, so stdin comes from
+        # /dev/null: deploycheck reads none, and a docker CLI reading the terminal
+        # from there would be stopped by SIGTTIN on a manual run. deploycheck caps
+        # its own HTTP call at 5s, so the process in the container only outlives
+        # this limit when the exec itself wedges.
+        timeout -k "$DEPLOYCHECK_KILL_AFTER" "$DEPLOYCHECK_TIMEOUT" docker compose exec -T broker python -m broker.deploycheck </dev/null || result=$?
+
+        case "$result" in
+            "$DEPLOYCHECK_SAFE") break ;;
+            "$DEPLOYCHECK_BUSY") reason="broker busy, tasks are running" ;;
+            # docker compose exec also exits 1 for its own failures; either
+            # way the cause is in the stderr already passed through above.
+            "$DEPLOYCHECK_UNKNOWN") reason="deploycheck could not tell whether tasks are running, or docker compose exec failed (exit 1)" ;;
+            "$DEPLOYCHECK_TIMED_OUT" | "$DEPLOYCHECK_KILLED") reason="deploycheck timed out after ${DEPLOYCHECK_TIMEOUT}s" ;;
+            *) reason="docker compose exec (or timeout) failed with exit code $result" ;;
+        esac
+
+        # A busy answer came from a running broker, so only an inconclusive
+        # one can mean the broker has stopped since it was last checked.
+        if [ "$result" != "$DEPLOYCHECK_BUSY" ] && ! broker_is_running; then
+            info "Broker has stopped, so no tasks can be in flight; skipping the remaining deploychecks"
+            break
+        fi
+
+        if [ "$attempt" -ge "$DEPLOYCHECK_ATTEMPTS" ]; then
+            die "Broker still not safe to reset after $attempt attempts: $reason"
+        fi
+
+        info "Attempt $attempt of $DEPLOYCHECK_ATTEMPTS: $reason; retrying in $DEPLOYCHECK_DELAY seconds"
+        sleep "$DEPLOYCHECK_DELAY"
+        attempt=$((attempt + 1))
+    done
+    if [ "$result" = "$DEPLOYCHECK_SAFE" ]; then
+        success "Broker is safe to reset"
+    fi
+else
+    info "Broker is not running, so no tasks can be in flight; skipping deploycheck"
+fi
 
 info "Stopping containers..."
 docker compose stop || die "docker compose stop failed"
@@ -50,4 +163,21 @@ docker compose rm -f || die "docker compose rm -f failed"
 info "Starting containers..."
 docker compose up -d --remove-orphans || die "docker compose up -d --remove-orphans failed"
 
-success "Containers reset"
+broker_is_running || die "The broker is not running after docker compose up -d --remove-orphans"
+
+stamp_dir=$(dirname "$STAMP") || die "Could not work out the stamp directory from '$STAMP'"
+mkdir -p "$stamp_dir" || die "Could not create the stamp directory '$stamp_dir'"
+
+# Written beside the stamp and renamed so a failed write never leaves a
+# truncated stamp that a later run would compare against.
+stamp_tmp=$(mktemp "$stamp_dir/deployed-images.XXXXXX") || die "Could not create a temporary stamp file in '$stamp_dir'"
+if ! printf '%s\n' "$current" >"$stamp_tmp"; then
+    rm -f "$stamp_tmp"
+    die "Could not write the temporary stamp file '$stamp_tmp'"
+fi
+if ! mv -f "$stamp_tmp" "$STAMP"; then
+    rm -f "$stamp_tmp"
+    die "Could not move the temporary stamp file into place at '$STAMP'"
+fi
+
+success "Containers reset; images recorded in $STAMP"
