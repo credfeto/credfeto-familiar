@@ -8,3 +8,8 @@ Type=oneshot
 User=markr
 ExecStart=/home/markr/familiar/update
 WorkingDirectory=/home/markr/familiar
+# A oneshot unit never times out by default, and while a hung run (a stalled
+# docker compose pull, say) keeps it active the hourly timer never fires again.
+# Budget: about 13min for the deploycheck retries at worst, plus about 30min
+# for a large but healthy pull and up -d, kept under the hourly timer interval.
+TimeoutStartSec=45min
