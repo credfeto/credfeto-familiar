@@ -67,6 +67,34 @@ docker_calls() {
     cat "$STUB_DIR/docker-calls"
 }
 
+# The secret the stub docker's default resolved configuration holds, which no
+# stamp, output or leftover file may ever contain.
+CONFIG_SECRET_SENTINEL='stub-secret-sentinel'
+
+# Must match the default the stub docker prints for docker compose config.
+DEFAULT_RESOLVED_CONFIG="services:
+  broker:
+    environment:
+      API_KEY: $CONFIG_SECRET_SENTINEL"
+
+# The stamp line for a resolved configuration given as $1, which defaults to
+# the stub docker's default one. Hashed here rather than through the stub so
+# working it out never adds to the logged docker calls.
+config_stamp_line() {
+    config_hash=$(printf '%s\n' "${1:-$DEFAULT_RESOLVED_CONFIG}" | sha256sum | cut -d ' ' -f 1)
+    printf 'config %s' "$config_hash"
+}
+
+# Puts a command named $1 first on PATH whose body is $2, for failures the
+# stubs in test/stubs cannot produce.
+override_command() {
+    override_dir="$BATS_TEST_TMPDIR/override"
+    mkdir -p "$override_dir"
+    printf '#!/bin/sh\n%s\n' "$2" >"$override_dir/$1"
+    chmod +x "$override_dir/$1"
+    PATH="$override_dir:$PATH"
+}
+
 # Makes a directory ($1) holding only dirname and the stub docker, so a script
 # run with it as PATH gets past its docker check but finds no timeout.
 make_no_timeout_dir() {

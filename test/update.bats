@@ -4,8 +4,12 @@
 
 load test_helper
 
-OLD_STAMP='alpha/img:2 sha256:alpha_img_2
+IMAGES_STAMP='alpha/img:2 sha256:alpha_img_2
 zeta/img:1 sha256:zeta_img_1'
+
+# What a deploy of the stub docker's default images and configuration records.
+CURRENT_STAMP="$IMAGES_STAMP
+$(config_stamp_line)"
 
 setup() {
     deploy_dir="$BATS_TEST_TMPDIR/deploy"
@@ -134,6 +138,26 @@ calls() {
     [ "$(calls 'compose up')" -eq 0 ]
 }
 
+@test "resolving the compose configuration fails" {
+    stub resolve-config-fails
+    run "$deploy_dir/update"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Could not resolve the compose configuration (docker compose config failed)"* ]]
+    [ "$(calls 'compose ps')" -eq 0 ]
+    [ "$(calls 'compose up')" -eq 0 ]
+    [ ! -f "$stamp" ]
+}
+
+@test "hashing the compose configuration fails" {
+    override_command sha256sum 'exit 1'
+    run "$deploy_dir/update"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Could not hash the compose configuration (sha256sum failed)"* ]]
+    [[ "$output" != *"$CONFIG_SECRET_SENTINEL"* ]]
+    [ "$(calls 'compose up')" -eq 0 ]
+    [ ! -f "$stamp" ]
+}
+
 @test "ps fails" {
     stub ps-fails
     run "$deploy_dir/update"
@@ -143,9 +167,9 @@ calls() {
     [ "$(calls 'compose up')" -eq 0 ]
 }
 
-@test "unchanged and running: exit 0, no deploycheck, no up, old stamp format matches" {
+@test "images and configuration unchanged and running: exit 0, no deploycheck, no up" {
     stub running
-    printf '%s\n' "$OLD_STAMP" >"$stamp"
+    printf '%s\n' "$CURRENT_STAMP" >"$stamp"
     run "$deploy_dir/update"
     [ "$status" -eq 0 ]
     [[ "$output" == *"Nothing to do"* ]]
@@ -153,12 +177,53 @@ calls() {
     [ "$(calls 'compose up')" -eq 0 ]
 }
 
+@test "configuration changed with images unchanged and running: deploycheck then up, stamp updated" {
+    stub running
+    printf '%s\n' "$CURRENT_STAMP" >"$stamp"
+    stub resolved-config 'services: {}'
+    stub deploycheck-results 0
+    run "$deploy_dir/update"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"Nothing to do"* ]]
+    [ "$(calls deploycheck)" -eq 1 ]
+    [ "$(calls 'compose up')" -eq 1 ]
+    [ "$(cat "$stamp")" = "$IMAGES_STAMP
+$(config_stamp_line 'services: {}')" ]
+}
+
+@test "a stamp without a configuration line redeploys once, then does nothing" {
+    stub running
+    printf '%s\n' "$IMAGES_STAMP" >"$stamp"
+    run "$deploy_dir/update"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"Nothing to do"* ]]
+    [ "$(calls deploycheck)" -eq 1 ]
+    [ "$(calls 'compose up')" -eq 1 ]
+    [ "$(cat "$stamp")" = "$CURRENT_STAMP" ]
+
+    run "$deploy_dir/update"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Nothing to do"* ]]
+    [ "$(calls deploycheck)" -eq 1 ]
+    [ "$(calls 'compose up')" -eq 1 ]
+}
+
+@test "the stamp records a hash of the configuration, never the configuration" {
+    run "$deploy_dir/update"
+    [ "$status" -eq 0 ]
+    [ "$(head -n 2 "$stamp")" = "$IMAGES_STAMP" ]
+    [ "$(wc -l <"$stamp")" -eq 3 ]
+    [[ "$(tail -n 1 "$stamp")" =~ ^config\ [0-9a-f]{64}$ ]]
+    [[ "$output" != *"$CONFIG_SECRET_SENTINEL"* ]]
+    [ -z "$(grep -rlF -- "$CONFIG_SECRET_SENTINEL" "$stamp_dir" || true)" ]
+}
+
 @test "image order ignores the caller's locale: a C-ordered stamp still matches" {
     # Only meaningful where a locale that collates case-insensitively exists.
     [ "$(printf 'a\nB\n' | LC_ALL=en_US.UTF-8 sort | head -n 1)" = a ] || skip "en_US.UTF-8 collation is not available"
     stub running
     stub config-images $'a/img:1\nB/img:1'
-    printf 'B/img:1 sha256:B_img_1\na/img:1 sha256:a_img_1\n' >"$stamp"
+    printf 'B/img:1 sha256:B_img_1\na/img:1 sha256:a_img_1\n%s\n' "$(config_stamp_line)" >"$stamp"
     LC_ALL=en_US.UTF-8 run "$deploy_dir/update"
     [ "$status" -eq 0 ]
     [[ "$output" == *"Nothing to do"* ]]
@@ -174,13 +239,14 @@ calls() {
     [ "$status" -eq 0 ]
     [ "$(grep -cxF 'image inspect -f {{.Id}} repo/img:[ab]' "$STUB_DIR/docker-calls")" -eq 1 ]
     [ "$(grep -cF 'repo/img:a' "$STUB_DIR/docker-calls" || true)" -eq 0 ]
-    [ "$(cat "$stamp")" = 'repo/img:[ab] sha256:repo_img_[ab]' ]
+    [ "$(cat "$stamp")" = "repo/img:[ab] sha256:repo_img_[ab]
+$(config_stamp_line)" ]
 }
 
 @test "stamp unreadable dies" {
     [ "$(id -u)" -ne 0 ] || skip "root can read any file"
     stub running
-    printf '%s\n' "$OLD_STAMP" >"$stamp"
+    printf '%s\n' "$CURRENT_STAMP" >"$stamp"
     chmod 000 "$stamp"
     run "$deploy_dir/update"
     chmod 600 "$stamp"
@@ -189,14 +255,14 @@ calls() {
     [ "$(calls 'compose up')" -eq 0 ]
 }
 
-@test "broker not running: no deploycheck, up runs, stamp written in the old format" {
-    printf '%s\n' "$OLD_STAMP" >"$stamp"
+@test "broker not running: no deploycheck, up runs, stamp rewritten" {
+    printf '%s\n' "$CURRENT_STAMP" >"$stamp"
     run "$deploy_dir/update"
     [ "$status" -eq 0 ]
     [ "$(calls deploycheck)" -eq 0 ]
     assert_deploycheck_timeout_calls 0
     [ "$(calls 'compose up')" -eq 1 ]
-    [ "$(cat "$stamp")" = "$OLD_STAMP" ]
+    [ "$(cat "$stamp")" = "$CURRENT_STAMP" ]
     [ -z "$(find "$stamp_dir" -name 'deployed-images.*')" ]
 }
 
@@ -209,7 +275,7 @@ calls() {
     [ "$(calls deploycheck)" -eq 1 ]
     assert_deploycheck_timeout_calls 1
     [ "$(calls 'compose up')" -eq 1 ]
-    [ "$(cat "$stamp")" = "$OLD_STAMP" ]
+    [ "$(cat "$stamp")" = "$CURRENT_STAMP" ]
 }
 
 @test "busy 3 times then safe" {
@@ -307,7 +373,7 @@ calls() {
     [[ "$output" != *"Broker is safe to redeploy"* ]]
     [ "$(calls deploycheck)" -eq 1 ]
     [ "$(calls 'compose up')" -eq 1 ]
-    [ "$(cat "$stamp")" = "$OLD_STAMP" ]
+    [ "$(cat "$stamp")" = "$CURRENT_STAMP" ]
 }
 
 @test "unknown on the last attempt, then the broker is reported stopped: up runs" {

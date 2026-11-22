@@ -12,8 +12,9 @@
 # that was never running. Each deploycheck is limited to DEPLOYCHECK_TIMEOUT
 # seconds, and one that times out counts as inconclusive.
 #
-# Once the broker is back up the deployed images are recorded in the same
-# stamp update uses, so the next update does not redeploy unchanged images.
+# Once the broker is back up the deployed images and a hash of the resolved
+# compose configuration are recorded in the same stamp update uses, so the
+# next update does not redeploy when neither has changed.
 set -eu
 
 die() {
@@ -109,6 +110,17 @@ $image $image_id"
     fi
 done
 set +f
+
+# Hashed exactly as update hashes it, so the stamp written here matches the one
+# update compares against. The resolved configuration holds the secrets from
+# .env, so only its hash is kept, and it is captured before hashing rather than
+# piped so a failure of docker compose config is not hidden behind sha256sum's
+# exit status.
+resolved_config=$(docker compose config) || die "Could not resolve the compose configuration (docker compose config failed)"
+config_hash=$(printf '%s\n' "$resolved_config" | sha256sum) || die "Could not hash the compose configuration (sha256sum failed)"
+unset resolved_config
+current="$current
+config ${config_hash%% *}"
 
 if broker_is_running; then
     attempt=1

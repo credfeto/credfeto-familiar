@@ -1,8 +1,9 @@
 #!/bin/sh
-# Pull the images, then redeploy only if one of them changed since the last
+# Pull the images, then redeploy only if one of them, or the resolved compose
+# configuration (docker-compose.yaml with .env applied), changed since the last
 # successful deploy (or the broker isn't running). A pull that brings nothing
-# new, with the broker running, exits 0 without running deploycheck or
-# touching the containers.
+# new, with the configuration unchanged and the broker running, exits 0 without
+# running deploycheck or touching the containers.
 #
 # When the broker isn't running no tasks can be in flight, so deploycheck is
 # skipped and the containers are brought straight up. When it is running,
@@ -110,6 +111,15 @@ $image $image_id"
     fi
 done
 set +f
+
+# The resolved configuration holds the secrets from .env, so only its hash is
+# kept, and it is captured before hashing rather than piped so a failure of
+# docker compose config is not hidden behind sha256sum's exit status.
+resolved_config=$(docker compose config) || die "Could not resolve the compose configuration (docker compose config failed)"
+config_hash=$(printf '%s\n' "$resolved_config" | sha256sum) || die "Could not hash the compose configuration (sha256sum failed)"
+unset resolved_config
+current="$current
+config ${config_hash%% *}"
 
 if broker_is_running; then
     if [ -f "$STAMP" ]; then
