@@ -46,7 +46,7 @@ services:
       - familiar-net      # broker <-> agents
       - familiar-mcp-net  # broker <-> MCP-server containers
       - familiar-edge-net # broker <-> the edge
-    restart: unless-stopped
+    restart: always
 
   # Never runs (scale: 0): the broker creates the edge container itself (the
   # only one facing the internet; its settings ship in code). Listed so

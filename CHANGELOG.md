@@ -24,6 +24,7 @@ Please ADD ALL Changes to the UNRELEASED SECTION and not a specific release
 - familiar-update.service now sets TimeoutStartSec=45min so a hung update run is killed and the hourly timer can fire again
 - update and reset now record a SHA-256 hash of the resolved docker compose config in the deploy stamp, so changes to .env or the compose file alone trigger a redeploy even when no image changed (#14)
 ### Changed
+- All containers use `restart: always` instead of `unless-stopped`, so a container stopped during a reboot or daemon restart is always brought back (an unless-stopped container was left down after a clean reboot)
 - README: explain that the clone is the install directory and how to install and update it (#11)
 ### Deprecated
 ### Removed
